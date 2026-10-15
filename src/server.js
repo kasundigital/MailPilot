@@ -13,7 +13,23 @@ import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
 import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits} from './core.js';
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
-if(!ADMIN_EMAIL||!ADMIN_PASSWORD||ADMIN_PASSWORD.startsWith('REPLACE_')||!JWT_SECRET||JWT_SECRET.length<32||!ENCRYPTION_KEY||!/^[0-9a-f]{64}$/i.test(ENCRYPTION_KEY)||!PUBLIC_URL||!PUBLIC_URL.startsWith('https://'))throw Error('Configure valid ADMIN_EMAIL, ADMIN_PASSWORD, JWT_SECRET, ENCRYPTION_KEY and HTTPS PUBLIC_URL');
+
+if (!ADMIN_EMAIL) {
+  throw Error('Configure valid ADMIN_EMAIL');
+}
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD.startsWith('REPLACE_')) {
+  throw Error('Configure valid ADMIN_PASSWORD');
+}
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  throw Error('Configure valid JWT_SECRET');
+}
+if (!ENCRYPTION_KEY || !/^[0-9a-f]{64}$/i.test(ENCRYPTION_KEY)) {
+  throw Error('Configure valid ENCRYPTION_KEY');
+}
+if (!PUBLIC_URL || !PUBLIC_URL.startsWith('https://')) {
+  throw Error('Configure valid HTTPS PUBLIC_URL');
+}
+
 const app=Fastify({logger:true,bodyLimit:1_000_000,trustProxy:false});
 await app.register(helmet,{contentSecurityPolicy:false});
 await app.register(cookie);
