@@ -105,6 +105,16 @@ app.post('/api/accounts', { preHandler: auth }, async (req, reply) => {
   return { id: r.insertId };
 });
 app.post('/api/accounts/:id/test',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
+const csvCell = value => '"' + String(value ?? '').replace(/^[=+@\-\t\r]/, "'app.get('/api/contacts',{").replace(/"/g, '""') + '"';
+app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
+  const contacts=await rows('SELECT email,subscribed,consent_source,created_at,unsubscribed_at FROM contacts ORDER BY id');
+  const header=['email','subscribed','consent_source','created_at','unsubscribed_at'];
+  const lines=[header.join(','),...contacts.map(c=>header.map(k=>csvCell(c[k])).join(','))];
+  reply.header('Content-Type','text/csv; charset=utf-8');
+  reply.header('Content-Disposition','attachment; filename="mailpilot-contacts.csv"');
+  reply.header('Cache-Control','no-store');
+  return '\uFEFF'+lines.join('\r\n')+'\r\n';
+});
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
 app.post('/api/contacts/import',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}return {received:parsed.length,added,duplicates:parsed.length-added}});
 app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
