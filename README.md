@@ -19,7 +19,28 @@ MailPilot is a Docker-first bulk email application for VPS hosting. It supports 
 - Per-recipient signed unsubscribe links, List-Unsubscribe headers and public unsubscribe endpoint
 - Responsive dark admin dashboard, SVG branding, Docker Compose and MariaDB persistence
 
-## Quick start
+## One-command installation (Ubuntu / Debian)
+
+On a fresh VPS, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kasundigital/MailPilot/main/install.sh -o /tmp/mailpilot-install.sh
+sudo bash /tmp/mailpilot-install.sh
+```
+
+The installer checks Docker and Compose, clones to `/opt/mailpilot`, generates unique secrets, starts containers, and checks localhost health. It asks for your admin email and public **HTTPS** URL. It saves the generated initial password in `/opt/mailpilot/initial-admin-credentials.txt` (root-only): move it into a secure password manager and delete that file. Re-running preserves existing `.env` and database volumes; it is not an automatic Git updater.
+
+**Important:** MailPilot is bound to `127.0.0.1:3088`. Set up your own HTTPS Caddy/Nginx proxy from the hostname you entered to `http://127.0.0.1:3088` before visiting the site. Without HTTPS, login cookies will not work. Installer does **not** modify firewall rules, create DNS records, or issue certificates.
+
+After installation:
+
+```bash
+cd /opt/mailpilot
+sudo docker compose ps
+sudo docker compose logs --tail=100
+```
+
+## Manual installation
 
 ```bash
 git clone https://github.com/kasundigital/MailPilot.git
