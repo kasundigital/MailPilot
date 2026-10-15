@@ -30,7 +30,46 @@ app.post('/api/logout',{preHandler:auth},async(req,reply)=>{reply.clearCookie('m
 app.get('/api/me',{preHandler:auth},async()=>({email:ADMIN_EMAIL}));
 app.get('/api/stats',{preHandler:auth},async()=>{const [contacts]=await rows('SELECT COUNT(*) total,SUM(subscribed=1) subscribed FROM contacts');const [messages]=await rows("SELECT COUNT(*) total,SUM(status='sent') sent,SUM(status='queued') queued,SUM(status='failed') failed FROM messages");return {contacts,messages}});
 app.get('/api/accounts',{preHandler:auth},async()=>rows('SELECT id,label,host,port,secure,username,from_name,from_email,per_minute,per_hour,per_day,enabled FROM accounts ORDER BY id DESC'));
-app.post('/api/accounts',{preHandler:auth},async(req,reply)=>{const x=req.body||{},limit=safeLimits({perMinute:x.perMinute,perHour:x.perHour,perDay:x.perDay});if(!x.label||!x.host||!x.username||!x.password||!normalizeEmail(x.fromEmail)||!Number.isInteger(Number(x.port))||Number(x.port)<1||Number(x.port)>65535)return reply.code(400).send({error:'Invalid SMTP details'});const r=await rows('INSERT INTO accounts(label,host,port,secure,username,password_cipher,from_name,from_email,per_minute,per_hour,per_day) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[String(x.label).slice(0,120),String(x.host).slice(0,255),Number(x.port),!!x.secure,String(x.username),encrypt(String(x.password),ENCRYPTION_KEY),String(x.fromName||'MailPilot').slice(0,120),normalizeEmail(x.fromEmail),limit.perMinute,limit.perHour,limit.perDay]);return {id:r.insertId}});
+app.post('/api/accounts', { preHandler: auth }, async (req, reply) => {
+  const x = req.body || {};
+  const limit = safeLimits({
+    perMinute: x.perMinute,
+    perHour: x.perHour,
+    perDay: x.perDay,
+  });
+
+  if (
+    !x.label ||
+    !x.host ||
+    !x.username ||
+    !x.password ||
+    !normalizeEmail(x.fromEmail) ||
+    !Number.isInteger(Number(x.port)) ||
+    Number(x.port) < 1 ||
+    Number(x.port) > 65535
+  ) {
+    return reply.code(400).send({ error: 'Invalid SMTP details' });
+  }
+
+  const r = await rows(
+    'INSERT INTO accounts(label,host,port,secure,username,password_cipher,from_name,from_email,per_minute,per_hour,per_day) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    [
+      String(x.label).slice(0, 120),
+      String(x.host).slice(0, 255),
+      Number(x.port),
+      !!x.secure,
+      String(x.username),
+      encrypt(String(x.password), ENCRYPTION_KEY),
+      String(x.fromName || 'MailPilot').slice(0, 120),
+      normalizeEmail(x.fromEmail),
+      limit.perMinute,
+      limit.perHour,
+      limit.perDay,
+    ]
+  );
+
+  return { id: r.insertId };
+});
 app.post('/api/accounts/:id/test',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
 app.post('/api/contacts/import',{preHandler:auth},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}return {received:parsed.length,added,duplicates:parsed.length-added}});
