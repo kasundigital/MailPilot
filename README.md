@@ -40,7 +40,9 @@ sudo docker compose ps
 sudo docker compose logs --tail=100
 ```
 
-## Manual installation
+## Docker image and Docker Run
+
+MailPilot includes a `Dockerfile` for local builds and a GitHub Actions workflow that publishes `ghcr.io/kasundigital/mailpilot:latest` after a successful build on `main` (the image is not guaranteed to exist until publishing succeeds).\n\n**Pre-built image with Compose:** configure secure `.env`, then run `docker compose -f compose.image.yml up -d`.\n\n**Local build with Compose:** `docker compose up -d --build`.\n\n**Docker Run:** needs a MariaDB container, a private network, persistent volume, and the MailPilot app container. See [full Docker Run and Docker Compose instructions](docs/DOCKER.md).\n\nBoth deployments listen on localhost by default; configure an HTTPS reverse proxy.\n\n## Manual installation
 
 ```bash
 git clone https://github.com/kasundigital/MailPilot.git
