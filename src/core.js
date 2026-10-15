@@ -6,3 +6,4 @@ export function decrypt(value,key){const [iv,tag,data]=value.split(':');const de
 export function signUnsubscribe(id,email,secret){return crypto.createHmac('sha256',secret).update(id+':'+email).digest('hex')}
 export function validSignature(id,email,signature,secret){if(!/^[0-9a-f]{64}$/.test(signature||''))return false;const a=Buffer.from(signUnsubscribe(id,email,secret),'hex');const b=Buffer.from(signature,'hex');return crypto.timingSafeEqual(a,b)}
 export function safeLimits(input){const v=n=>Number.isInteger(Number(n))&&Number(n)>0&&Number(n)<=100000?Number(n):null;const min=v(input.perMinute),hour=v(input.perHour),day=v(input.perDay);if(!min||!hour||!day||hour<min||day<hour)throw Error('Valid positive limits required: daily >= hourly >= minute');return {perMinute:min,perHour:hour,perDay:day}}
+export function escapeHtml(unsafe){return String(unsafe||'').replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;")}
