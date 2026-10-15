@@ -8,9 +8,12 @@ log(){ printf '\n[MailPilot] %s\n' "$*"; }
 fail(){ echo "[MailPilot] ERROR: $*" >&2; exit 1; }
 ask(){ local value; read -r -p "$1" value </dev/tty || fail "Terminal required"; printf '%s' "$value"; }
 [[ "$(id -u)" -eq 0 ]] || fail "Use sudo or root."
+# shellcheck disable=SC1091
 source /etc/os-release
 [[ "${ID:-}" == ubuntu || "${ID:-}" == debian || "${ID_LIKE:-}" == *debian* ]] || fail "Ubuntu/Debian only."
-[[ "$PORT" =~ ^[0-9]+$ ]] && ((PORT>=1024 && PORT<=65535)) || fail "Invalid port."
+if ! ([[ "$PORT" =~ ^[0-9]+$ ]] && ((PORT>=1024 && PORT<=65535))); then
+  fail "Invalid port."
+fi
 log "Installing dependencies"
 apt-get update -qq
 apt-get install -y -qq ca-certificates git openssl curl python3 >/dev/null
@@ -40,10 +43,14 @@ else
   cp .env.example .env
   ADMIN_PASSWORD="$(openssl rand -hex 32)"
   export PORT EMAIL URL ADMIN_PASSWORD
-  export JWT_SECRET="$(openssl rand -hex 32)"
-  export ENCRYPTION_KEY="$(openssl rand -hex 32)"
-  export DB_PASSWORD="$(openssl rand -hex 32)"
-  export ROOT_PASSWORD="$(openssl rand -hex 32)"
+  JWT_SECRET="$(openssl rand -hex 32)"
+  export JWT_SECRET
+  ENCRYPTION_KEY="$(openssl rand -hex 32)"
+  export ENCRYPTION_KEY
+  DB_PASSWORD="$(openssl rand -hex 32)"
+  export DB_PASSWORD
+  ROOT_PASSWORD="$(openssl rand -hex 32)"
+  export ROOT_PASSWORD
   python3 - <<'PY'
 import os
 from pathlib import Path
