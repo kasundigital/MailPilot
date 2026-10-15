@@ -42,18 +42,97 @@ app.get('/api/campaigns/:id/messages',{preHandler:auth},async(req)=>rows('SELECT
 app.get('/unsubscribe',async(req,reply)=>{const {id,email,sig}=req.query||{};if(!validSignature(id,email,sig,JWT_SECRET))return reply.code(400).type('text/plain').send('Invalid unsubscribe link');return reply.type('text/html').send('<!doctype html><title>Unsubscribe</title><h1>Unsubscribe</h1><form method="POST"><input type="hidden" name="id" value="'+String(id).replace(/\D/g,'')+'"><input type="hidden" name="email" value="'+String(email).replace(/["<>]/g,'')+'"><input type="hidden" name="sig" value="'+sig+'"><button>Confirm unsubscribe</button></form>')});
 app.post('/unsubscribe',async(req,reply)=>{const x=req.body||{};if(!validSignature(x.id,x.email,x.sig,JWT_SECRET))return reply.code(400).type('text/plain').send('Invalid link');await rows('UPDATE contacts SET subscribed=0,unsubscribed_at=NOW() WHERE id=? AND email=?',[x.id,x.email]);await rows("UPDATE messages SET status='suppressed' WHERE contact_id=? AND status='queued'",[x.id]);return reply.type('text/plain').send('You have been unsubscribed.')});
 await app.register(fastifyStatic,{root:path.join(path.dirname(fileURLToPath(import.meta.url)),'../public'),prefix:'/'});
-let busy=false;
-async function tick(){if(busy)return;busy=true;try{
-const candidates=await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
-const j=candidates[0];if(!j)return;
-if(!j.subscribed){await rows("UPDATE messages SET status='suppressed' WHERE id=?",[j.message_id]);return}
-const [limits]=await rows("SELECT SUM(m.sent_at>=NOW()-INTERVAL 1 MINUTE) minute_count,SUM(m.sent_at>=NOW()-INTERVAL 1 HOUR) hour_count,SUM(m.sent_at>=NOW()-INTERVAL 1 DAY) day_count FROM messages m JOIN campaigns c ON c.id=m.campaign_id WHERE c.account_id=? AND m.status='sent'",[j.account_id]);
-if(Number(limits.minute_count)>=j.per_minute||Number(limits.hour_count)>=j.per_hour||Number(limits.day_count)>=j.per_day)return;
-const taken=await rows("UPDATE messages SET status='sending',attempts=attempts+1 WHERE id=? AND status='queued'",[j.message_id]);if(!taken.affectedRows)return;
-const url=new URL('/unsubscribe',PUBLIC_URL);url.searchParams.set('id',j.contact_id);url.searchParams.set('email',j.email);url.searchParams.set('sig',signUnsubscribe(j.contact_id,j.email,JWT_SECRET));
-const unsubscribe=url.toString(),tx=nodemailer.createTransport({host:j.host,port:j.port,secure:!!j.secure,requireTLS:!j.secure,auth:{user:j.username,pass:decrypt(j.password_cipher,ENCRYPTION_KEY)},connectionTimeout:15000,socketTimeout:20000});
-try{await tx.sendMail({from:{name:j.from_name,address:j.from_email},to:j.email,subject:j.subject,html:j.html+'<p style="font-size:12px">Unsubscribe: <a href="'+unsubscribe+'">click here</a></p>',text:j.plain+'\n\nUnsubscribe: '+unsubscribe,headers:{'List-Unsubscribe':'<'+unsubscribe+'>'},list:{unsubscribe:{url:unsubscribe}}});await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL WHERE id=?",[j.message_id])}
-catch(e){const permanent=Number(e.responseCode)>=500||j.attempts>=4;const backoff=Math.min(3600,60*2**j.attempts);await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?",[permanent?'failed':'queued',backoff,String(e.message).slice(0,1000),j.message_id])}finally{tx.close()}
-await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))",[j.campaign_id]);
-}catch(e){app.log.error(e)}finally{busy=false}}
+let busy = false;
+
+async function getCandidate() {
+  const candidates = await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
+  return candidates[0];
+}
+
+async function handleUnsubscribed(j) {
+  if (!j.subscribed) {
+    await rows("UPDATE messages SET status='suppressed' WHERE id=?", [j.message_id]);
+    return true;
+  }
+  return false;
+}
+
+async function checkRateLimits(j) {
+  const [limits] = await rows("SELECT SUM(m.sent_at>=NOW()-INTERVAL 1 MINUTE) minute_count,SUM(m.sent_at>=NOW()-INTERVAL 1 HOUR) hour_count,SUM(m.sent_at>=NOW()-INTERVAL 1 DAY) day_count FROM messages m JOIN campaigns c ON c.id=m.campaign_id WHERE c.account_id=? AND m.status='sent'", [j.account_id]);
+  return (Number(limits.minute_count) >= j.per_minute || Number(limits.hour_count) >= j.per_hour || Number(limits.day_count) >= j.per_day);
+}
+
+async function takeMessage(message_id) {
+  const taken = await rows("UPDATE messages SET status='sending',attempts=attempts+1 WHERE id=? AND status='queued'", [message_id]);
+  return taken.affectedRows > 0;
+}
+
+async function sendCandidateMessage(j) {
+  const url = new URL('/unsubscribe', PUBLIC_URL);
+  url.searchParams.set('id', j.contact_id);
+  url.searchParams.set('email', j.email);
+  url.searchParams.set('sig', signUnsubscribe(j.contact_id, j.email, JWT_SECRET));
+  const unsubscribe = url.toString();
+
+  const tx = nodemailer.createTransport({
+    host: j.host,
+    port: j.port,
+    secure: !!j.secure,
+    requireTLS: !j.secure,
+    auth: {
+      user: j.username,
+      pass: decrypt(j.password_cipher, ENCRYPTION_KEY)
+    },
+    connectionTimeout: 15000,
+    socketTimeout: 20000
+  });
+
+  try {
+    await tx.sendMail({
+      from: { name: j.from_name, address: j.from_email },
+      to: j.email,
+      subject: j.subject,
+      html: j.html + '<p style="font-size:12px">Unsubscribe: <a href="' + unsubscribe + '">click here</a></p>',
+      text: j.plain + '\n\nUnsubscribe: ' + unsubscribe,
+      headers: { 'List-Unsubscribe': '<' + unsubscribe + '>' },
+      list: { unsubscribe: { url: unsubscribe } }
+    });
+    await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL WHERE id=?", [j.message_id]);
+  } catch (e) {
+    const permanent = Number(e.responseCode) >= 500 || j.attempts >= 4;
+    const backoff = Math.min(3600, 60 * 2 ** j.attempts);
+    await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?", [permanent ? 'failed' : 'queued', backoff, String(e.message).slice(0, 1000), j.message_id]);
+  } finally {
+    tx.close();
+  }
+}
+
+async function checkCampaignCompletion(campaign_id) {
+  await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))", [campaign_id]);
+}
+
+async function tick() {
+  if (busy) return;
+  busy = true;
+  try {
+    const j = await getCandidate();
+    if (!j) return;
+
+    const suppressed = await handleUnsubscribed(j);
+    if (suppressed) return;
+
+    const isLimited = await checkRateLimits(j);
+    if (isLimited) return;
+
+    const taken = await takeMessage(j.message_id);
+    if (!taken) return;
+
+    await sendCandidateMessage(j);
+    await checkCampaignCompletion(j.campaign_id);
+  } catch (e) {
+    app.log.error(e);
+  } finally {
+    busy = false;
+  }
+}
 await init();await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");setInterval(tick,1000).unref();await app.listen({port:3088,host:'0.0.0.0'});
