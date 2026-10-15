@@ -41,7 +41,25 @@ const auth=async(req,reply)=>{try{await req.jwtVerify()}catch{return reply.code(
 app.setErrorHandler((err,req,reply)=>{req.log.error(err);reply.code(err.statusCode&&err.statusCode<500?err.statusCode:400).send({error:err.statusCode&&err.statusCode<500?err.message:'Request failed'})});
 const rows=async(sql,params=[])=>{const [r]=await pool.query(sql,params);return r};
 app.get('/health',async()=>({ok:true}));
-app.post('/api/login',{config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {email,password}=req.body||{};if(email!==ADMIN_EMAIL||typeof password!=='string'||!(await bcrypt.compare(password,hash)))return reply.code(401).send({error:'Invalid credentials'});const token=app.jwt.sign({sub:ADMIN_EMAIL},{expiresIn:'8h'});reply.setCookie('mailpilot_session',token,{httpOnly:true,secure:true,sameSite:'strict',path:'/',maxAge:28800});return {ok:true}});
+app.post('/api/login', {
+  config: {
+    rateLimit: { max: 5, timeWindow: '1 minute' }
+  }
+}, async (req, reply) => {
+  const { email, password } = req.body || {};
+  if (email !== ADMIN_EMAIL || typeof password !== 'string' || !(await bcrypt.compare(password, hash))) {
+    return reply.code(401).send({ error: 'Invalid credentials' });
+  }
+  const token = app.jwt.sign({ sub: ADMIN_EMAIL }, { expiresIn: '8h' });
+  reply.setCookie('mailpilot_session', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 28800
+  });
+  return { ok: true };
+});
 app.post('/api/logout',{preHandler:auth},async(req,reply)=>{reply.clearCookie('mailpilot_session',{path:'/'});return {ok:true}});
 app.get('/api/me',{preHandler:auth},async()=>({email:ADMIN_EMAIL}));
 app.get('/api/stats',{preHandler:auth},async()=>{const [contacts]=await rows('SELECT COUNT(*) total,SUM(subscribed=1) subscribed FROM contacts');const [messages]=await rows("SELECT COUNT(*) total,SUM(status='sent') sent,SUM(status='queued') queued,SUM(status='failed') failed FROM messages");return {contacts,messages}});
