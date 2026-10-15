@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
+import formbody from '@fastify/formbody';
 import jwt from '@fastify/jwt';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -16,6 +17,7 @@ if(!ADMIN_EMAIL||!ADMIN_PASSWORD||ADMIN_PASSWORD.startsWith('REPLACE_')||!JWT_SE
 const app=Fastify({logger:true,bodyLimit:1_000_000,trustProxy:false});
 await app.register(helmet,{contentSecurityPolicy:false});
 await app.register(cookie);
+await app.register(formbody);
 await app.register(jwt,{secret:JWT_SECRET,cookie:{cookieName:'mailpilot_session',signed:false}});
 await app.register(rateLimit,{global:false});
 const hash=await bcrypt.hash(ADMIN_PASSWORD,12);
