@@ -56,4 +56,8 @@ try{await tx.sendMail({from:{name:j.from_name,address:j.from_email},to:j.email,s
 catch(e){const permanent=Number(e.responseCode)>=500||j.attempts>=4;const backoff=Math.min(3600,60*2**j.attempts);await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?",[permanent?'failed':'queued',backoff,String(e.message).slice(0,1000),j.message_id])}finally{tx.close()}
 await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))",[j.campaign_id]);
 }catch(e){app.log.error(e)}finally{busy=false}}
-await init();await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");setInterval(tick,1000).unref();await app.listen({port:3088,host:'0.0.0.0'});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await init();await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");setInterval(tick,1000).unref();await app.listen({port:3088,host:'0.0.0.0'});
+}
+
+export { app };
