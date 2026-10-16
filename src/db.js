@@ -57,7 +57,14 @@ export async function init(){const statements=[
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(contact_id) REFERENCES contacts(id)
 )`,
-`CREATE TABLE IF NOT EXISTS campaign_audience (\n  campaign_id BIGINT NOT NULL,\n  contact_id BIGINT NOT NULL,\n  PRIMARY KEY(campaign_id,contact_id),\n  FOREIGN KEY(campaign_id) REFERENCES campaigns(id),\n  FOREIGN KEY(contact_id) REFERENCES contacts(id)\n)`,\n`CREATE TABLE IF NOT EXISTS admin_credentials (
+ `CREATE TABLE IF NOT EXISTS campaign_audience (
+  campaign_id BIGINT NOT NULL,
+  contact_id BIGINT NOT NULL,
+  PRIMARY KEY(campaign_id,contact_id),
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id)
+)`,
+`CREATE TABLE IF NOT EXISTS admin_credentials (
   id TINYINT PRIMARY KEY,
   password_hash VARCHAR(255) NOT NULL,
   session_version BIGINT NOT NULL DEFAULT 1,
