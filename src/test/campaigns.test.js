@@ -22,6 +22,8 @@ pool.query = async (sql, params) => {
       return [mockRows.shift()];
   }
 
+  if (sql.includes('SELECT id FROM contacts WHERE subscribed=1')) return [[{id: 9}]];
+  if (sql.includes('INSERT INTO campaign_audience')) return [{affectedRows:1}];
   if (sql.includes('SELECT id FROM accounts')) {
     if (params[0] === 1) return [[{ id: 1 }]];
     return [[]];
@@ -38,6 +40,14 @@ pool.query = async (sql, params) => {
   return [[{}]];
 };
 
+const originalGetConnection = pool.getConnection;
+pool.getConnection = async () => ({
+  beginTransaction: async()=>{},
+  commit: async()=>{},
+  rollback: async()=>{},
+  release: ()=>{},
+  query: async(sql,params)=>pool.query(sql,params)
+});
 const { app } = await import('../server.js');
 
 test('POST /api/campaigns validates input', async () => {
@@ -51,7 +61,7 @@ test('POST /api/campaigns validates input', async () => {
   });
 
   assert.equal(res.statusCode, 400);
-  assert.equal(res.json().error, 'Account, subject and HTML required');
+  assert.equal(res.json().error, 'Sender, subject and HTML are required');
 });
 
 test('POST /api/campaigns rejects non-existent account', async () => {
@@ -61,7 +71,7 @@ test('POST /api/campaigns rejects non-existent account', async () => {
     method: 'POST',
     url: '/api/campaigns',
     headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
-    payload: { accountId: 2, subject: 'Valid', html: '<p>HTML</p>' }
+    payload: { accountId: 2, subject: 'Valid', html: '<p>HTML</p>',audienceMode:'all' }
   });
 
   assert.equal(res.statusCode, 400);
@@ -78,6 +88,7 @@ test('POST /api/campaigns sanitizes HTML and inserts campaign', async () => {
     headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: {
       accountId: 1,
+      audienceMode: 'all',
       subject: 'My Campaign',
       html: '<h1>Title</h1><script>alert(1)</script><p>Hello</p>',
       plain: 'Custom plain'
@@ -133,5 +144,6 @@ test('GET /api/campaigns returns campaigns', async () => {
 });
 
 test.after(() => {
+  pool.getConnection=originalGetConnection;
   restoreServer(original);
 });
