@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise';
-export const pool=mysql.createPool({host:process.env.DB_HOST||'db',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'mailpilot',password:process.env.DB_PASSWORD,database:process.env.DB_NAME||'mailpilot',waitForConnections:true,connectionLimit:10,dateStrings:true});
+export const pool=mysql.createPool({host:process.env.DB_HOST||'db',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'mailpilot',password:process.env.DB_PASSWORD,database:process.env.DB_NAME||process.env.DB_DATABASE||'mailpilot',waitForConnections:true,connectionLimit:10});
 export async function init(){const statements=[
 `CREATE TABLE IF NOT EXISTS accounts (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -49,5 +49,77 @@ export async function init(){const statements=[
   INDEX message_work(status,next_attempt),
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(contact_id) REFERENCES contacts(id)
+)`,
+`CREATE TABLE IF NOT EXISTS workflows (
+  id VARCHAR(36) PRIMARY KEY,
+  workspace_id VARCHAR(36),
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  status ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+  version INT NOT NULL DEFAULT 1,
+  definition JSON NOT NULL,
+  created_by VARCHAR(36),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+)`,
+`CREATE TABLE IF NOT EXISTS workflow_versions (
+  id VARCHAR(36) PRIMARY KEY,
+  workflow_id VARCHAR(36) NOT NULL,
+  version INT NOT NULL,
+  definition JSON NOT NULL,
+  created_by VARCHAR(36),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY (workflow_id, version),
+  INDEX (workflow_id),
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+)`,
+`CREATE TABLE IF NOT EXISTS triggers (
+  id VARCHAR(36) PRIMARY KEY,
+  workflow_id VARCHAR(36) NOT NULL,
+  type VARCHAR(64) NOT NULL,
+  config JSON NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+)`,
+`CREATE TABLE IF NOT EXISTS workflow_runs (
+  id VARCHAR(36) PRIMARY KEY,
+  workflow_id VARCHAR(36) NOT NULL,
+  workflow_version INT NOT NULL,
+  status ENUM('pending','running','succeeded','failed','cancelled') NOT NULL DEFAULT 'pending',
+  meta JSON DEFAULT (JSON_OBJECT()),
+  started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  finished_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+  INDEX (workflow_id)
+)`,
+`CREATE TABLE IF NOT EXISTS workflow_run_nodes (
+  id VARCHAR(36) PRIMARY KEY,
+  run_id VARCHAR(36) NOT NULL,
+  node_key VARCHAR(255) NOT NULL,
+  status ENUM('pending','running','succeeded','failed','skipped') NOT NULL DEFAULT 'pending',
+  started_at TIMESTAMP NULL,
+  finished_at TIMESTAMP NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  result JSON DEFAULT (JSON_OBJECT()),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY (run_id, node_key),
+  INDEX (run_id),
+  FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+)`,
+`CREATE TABLE IF NOT EXISTS actions_catalog (
+  id VARCHAR(36) PRIMARY KEY,
+  
+  
+  
+  key_name VARCHAR(128) NOT NULL,
+  schema JSON NOT NULL,
+  description TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY (key_name)
 )`
-];for(const s of statements)await pool.query(s)}
+];
+for(const s of statements)await pool.query(s)}
