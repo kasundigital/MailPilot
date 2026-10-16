@@ -11,6 +11,7 @@ import sanitizeHtml from 'sanitize-html';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
+import {checkSenderDns} from './dns-diagnostics.js';
 import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
 
@@ -103,6 +104,13 @@ app.post('/api/accounts', { preHandler: auth }, async (req, reply) => {
   );
 
   return { id: r.insertId };
+});
+app.get('/api/accounts/:id/dns',{preHandler:auth,config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req,reply)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<=0)return reply.code(400).send({error:'Invalid account ID'});
+  const [account]=await rows('SELECT from_email FROM accounts WHERE id=?',[id]);
+  if(!account)return reply.code(404).send({error:'Account not found'});
+  return checkSenderDns(account.from_email);
 });
 app.post('/api/accounts/:id/test',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
 const csvCell = value => '"' + String(value ?? '').replace(/^[=+@\-\t\r]/, "'app.get('/api/contacts',{").replace(/"/g, '""') + '"';
