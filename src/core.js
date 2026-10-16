@@ -49,3 +49,14 @@ export function safeLimits(input) {
 
   return { perMinute: min, perHour: hour, perDay: day };
 }
+
+
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  })[char]);
+}
