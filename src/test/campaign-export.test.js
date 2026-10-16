@@ -25,6 +25,7 @@ test('campaign CSV export rejects invalid campaign ID', async () => {
 test('campaign CSV export includes errors and escapes spreadsheet formulas', async () => {
   const previous=pool.query;
   pool.query=async(sql,params)=>{
+    if(sql.includes('FROM admin_credentials'))return [[]];
     assert.match(sql,/FROM messages/);
     assert.deepEqual(params,[12]);
     return [[{id:8,email:'person@example.com',status:'failed',attempts:2,last_error:'=HYPERLINK("bad","x")',sent_at:null}]];
