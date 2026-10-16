@@ -116,6 +116,7 @@ test('POST /api/campaigns generates plaintext from HTML if not provided', async 
     headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: {
       accountId: 1,
+      audienceMode: 'all',
       subject: 'My Campaign',
       html: '<h1>Title</h1><p>Hello</p>'
     }
