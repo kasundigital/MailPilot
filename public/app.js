@@ -12,6 +12,20 @@ async function listCampaigns(){const d=await api('/api/campaigns');$('#campaignL
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify(values(e.target))});const me=await api('/api/me');csrfToken=me.csrfToken;$('#currentAdminEmail').textContent=me.email||'—';$('#auth').hidden=true;$('#app').hidden=false;await show('overview')}catch(err){$('#loginNotice').textContent=err.message}});
 $('#exportContacts').onclick=async()=>{try{const response=await fetch('/api/contacts/export.csv',{credentials:'same-origin'});if(!response.ok)throw Error('Contact export failed');const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='mailpilot-contacts.csv';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);alertText('Contact CSV exported.')}catch(err){alertText(err.message,true)}};
 $('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});location.reload()};
+$('#changePasswordForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const fields=values(e.target);
+  if(fields.newPassword!==fields.confirmPassword){alertText('New passwords do not match.',true);return}
+  if(fields.newPassword.length<12){alertText('Use at least 12 characters.',true);return}
+  if(!confirm('Change password and sign out all active sessions?'))return;
+  try{
+    await api('/api/me/password',{method:'POST',body:JSON.stringify({currentPassword:fields.currentPassword,newPassword:fields.newPassword})});
+    csrfToken='';
+    alert('Password updated. Sign in with your new password.');
+    location.reload();
+  }catch(err){alertText(err.message,true)}
+});
+
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
 $('#smtpForm').addEventListener('submit',async e=>{e.preventDefault();const x=values(e.target);x.secure=e.target.elements.secure.checked;try{await api('/api/accounts',{method:'POST',body:JSON.stringify(x)});e.target.reset();await listAccounts();alertText('SMTP account saved. Test connection before sending.')}catch(err){alertText(err.message,true)}});
 $('#contactForm').addEventListener('submit',async e=>{e.preventDefault();const x=values(e.target);x.confirmConsent=e.target.elements.confirmConsent.checked;try{const d=await api('/api/contacts/import',{method:'POST',body:JSON.stringify(x)});alertText('Imported '+d.added+' new contacts; '+d.duplicates+' duplicates.');await listContacts()}catch(err){alertText(err.message,true)}});
