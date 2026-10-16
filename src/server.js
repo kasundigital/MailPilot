@@ -175,11 +175,111 @@ app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
 });
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
 app.post('/api/contacts/import',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}await audit(req,'contacts_imported',`Added ${added} contacts`);return {received:parsed.length,added,duplicates:parsed.length-added}});
-app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
+app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.name,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM campaign_audience ca WHERE ca.campaign_id=c.id) audience_total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
 const safeStyleRegex=/^(?!.*(?:expression|-moz-binding|url\s*\()).*$/i;const safeStyle=[safeStyleRegex];const allowedStylesObj={'color':safeStyle,'background':safeStyle,'background-color':safeStyle,'font-family':safeStyle,'font-size':safeStyle,'font-weight':safeStyle,'font-style':safeStyle,'text-align':safeStyle,'text-decoration':safeStyle,'line-height':safeStyle,'margin':safeStyle,'margin-top':safeStyle,'margin-right':safeStyle,'margin-bottom':safeStyle,'margin-left':safeStyle,'padding':safeStyle,'padding-top':safeStyle,'padding-right':safeStyle,'padding-bottom':safeStyle,'padding-left':safeStyle,'border':safeStyle,'border-top':safeStyle,'border-right':safeStyle,'border-bottom':safeStyle,'border-left':safeStyle,'border-radius':safeStyle,'width':safeStyle,'max-width':safeStyle,'height':safeStyle,'max-height':safeStyle,'display':safeStyle,'vertical-align':safeStyle,'list-style':safeStyle,'list-style-type':safeStyle,'border-collapse':safeStyle,'border-spacing':safeStyle,'color-scheme':safeStyle};
-app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{const x=req.body||{};if(!x.accountId||!String(x.subject||'').trim()||!String(x.html||'').trim())return reply.code(400).send({error:'Account, subject and HTML required'});const clean=sanitizeHtml(String(x.html),{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']),allowVulnerableTags:true,allowedAttributes:{...sanitizeHtml.defaults.allowedAttributes,a:['href','target','rel'],img:['src','alt','width','height'],'*':['style']},allowedStyles:{'*':allowedStylesObj},allowedSchemes:['https','http','mailto']});const accounts=await rows('SELECT id FROM accounts WHERE id=? AND enabled=1',[x.accountId]);if(!accounts.length)return reply.code(400).send({error:'Active account required'});const r=await rows('INSERT INTO campaigns(account_id,subject,html,plain) VALUES (?,?,?,?)',[x.accountId,String(x.subject).slice(0,255),clean,String(x.plain||clean.replace(/<[^>]+>/g,' '))]);await audit(req,'campaign_created',`Campaign ID ${r.insertId}`);return {id:r.insertId}});
-app.post('/api/campaigns/:id/start',{preHandler:csrfAuth},async(req,reply)=>{const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);if(!c||!['draft','paused'].includes(c.status))return reply.code(400).send({error:'Campaign cannot be started'});if(c.status==='draft'){await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1",[c.id])}await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);await audit(req,'campaign_started',`Campaign ID ${c.id}`);return {ok:true}});
+app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{
+  const x=req.body||{};
+  if(!x.accountId||!String(x.subject||'').trim()||!String(x.html||'').trim())
+    return reply.code(400).send({error:'Sender, subject and HTML are required'});
+  if(!['all','selected'].includes(x.audienceMode))
+    return reply.code(400).send({error:'Choose your recipients explicitly'});
+  const clean=sanitizeHtml(String(x.html),{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']),allowVulnerableTags:true,allowedAttributes:{...sanitizeHtml.defaults.allowedAttributes,a:['href','target','rel'],img:['src','alt','width','height'],'*':['style']},allowedStyles:{'*':allowedStylesObj},allowedSchemes:['https','http','mailto']});
+  const accounts=await rows('SELECT id FROM accounts WHERE id=? AND enabled=1',[x.accountId]);
+  if(!accounts.length)return reply.code(400).send({error:'Active account required'});
+  let recipientIds=[];
+  if(x.audienceMode==='all'){
+    const contacts=await rows('SELECT id FROM contacts WHERE subscribed=1');
+    recipientIds=contacts.map(c=>c.id);
+  }else{
+    const emails=[...new Set(parseEmails(String(x.recipientEmails||'')))];
+    if(!emails.length||emails.length>500)
+      return reply.code(400).send({error:'Select 1–500 existing opted-in contact addresses'});
+    const contacts=await rows('SELECT id,email FROM contacts WHERE subscribed=1 AND email IN (?)',[emails]);
+    if(contacts.length!==emails.length)
+      return reply.code(400).send({error:'Some recipients are missing, invalid or unsubscribed'});
+    recipientIds=contacts.map(c=>c.id);
+  }
+  if(!recipientIds.length)return reply.code(400).send({error:'No subscribed contacts in the chosen audience'});
+  const connection=await pool.getConnection();
+  let id;
+  try{
+    await connection.beginTransaction();
+    const [result]=await connection.query('INSERT INTO campaigns(account_id,name,subject,preheader,html,plain) VALUES (?,?,?,?,?,?)',
+      [x.accountId,String(x.name||'').slice(0,255),String(x.subject).slice(0,255),String(x.preheader||'').slice(0,255),clean,String(x.plain||clean.replace(/<[^>]+>/g,' '))]);
+    id=result.insertId;
+    for(let offset=0;offset<recipientIds.length;offset+=500){
+      const batch=recipientIds.slice(offset,offset+500).map(contactId=>[id,contactId]);
+      await connection.query('INSERT INTO campaign_audience(campaign_id,contact_id) VALUES ?',[batch]);
+    }
+    await connection.commit();
+  }catch(err){await connection.rollback();throw err}finally{connection.release()}
+  await audit(req,'campaign_created',`Campaign ID ${id}; recipients ${recipientIds.length}`);
+  return {id,recipientCount:recipientIds.length};
+});
+app.post('/api/campaigns/:id/start',{preHandler:csrfAuth},async(req,reply)=>{
+  const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);
+  if(!c||!['draft','paused'].includes(c.status))
+    return reply.code(400).send({error:'Campaign cannot be started'});
+  if(c.status==='draft'){
+    const [audience]=await rows('SELECT COUNT(*) AS total FROM campaign_audience WHERE campaign_id=?',[c.id]);
+    if(!Number(audience?.total))return reply.code(400).send({error:'No saved audience. Recreate this campaign with explicit recipients.'});
+    await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,ca.contact_id FROM campaign_audience ca JOIN contacts c ON c.id=ca.contact_id WHERE ca.campaign_id=? AND c.subscribed=1",[c.id,c.id]);
+  }
+  await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);
+  await audit(req,'campaign_started',`Campaign ID ${c.id}`);
+  return {ok:true};
+});
 app.post('/api/campaigns/:id/pause',{preHandler:csrfAuth},async(req)=>{await rows("UPDATE campaigns SET status='paused' WHERE id=? AND status='running'",[req.params.id]);await audit(req,'campaign_paused',`Campaign ID ${req.params.id}`);return {ok:true}});
+app.delete('/api/campaigns/:id', { preHandler: csrfAuth }, async (req, reply) => {
+  const [c] = await rows('SELECT status FROM campaigns WHERE id=?', [req.params.id]);
+  if (!c) return reply.code(404).send({ error: 'Campaign not found' });
+  if (c.status === 'running') return reply.code(400).send({ error: 'Cannot delete a running campaign' });
+  await rows('DELETE FROM campaign_audience WHERE campaign_id=?', [req.params.id]);
+  await rows('DELETE FROM messages WHERE campaign_id=?', [req.params.id]);
+  await rows('DELETE FROM campaigns WHERE id=?', [req.params.id]);
+  await audit(req, 'campaign_deleted', `Campaign ID ${req.params.id}`);
+  return { ok: true };
+});
+
+
+app.post('/api/campaigns/test-send', { preHandler: csrfAuth }, async (req, reply) => {
+  const { accountId, subject, html, plain, testEmail } = req.body || {};
+  if (!accountId || !subject || !html || !testEmail) return reply.code(400).send({ error: 'Missing required fields for test send' });
+  const [account] = await rows('SELECT * FROM accounts WHERE id=? AND enabled=1', [accountId]);
+  if (!account) return reply.code(400).send({ error: 'Active account required' });
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: account.host, port: account.port, secure: !!account.secure,
+      auth: { user: account.username, pass: decrypt(account.password_cipher, ENCRYPTION_KEY) },
+      pool: false, direct: true
+    });
+    const parsedTestEmail = parseEmails(testEmail)[0];
+    if(!parsedTestEmail) return reply.code(400).send({ error: 'Invalid test email address' });
+
+    await transporter.sendMail({
+      from: `"${account.from_name}" <${account.from_email}>`,
+      to: parsedTestEmail,
+      subject: subject,
+      html: sanitizeHtml(String(html), { allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']), allowVulnerableTags: true, allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, a: ['href','target','rel'], img: ['src','alt','width','height'], '*': ['style'] }, allowedStyles: { '*': allowedStylesObj }, allowedSchemes: ['https','http','mailto'] }),
+      text: plain || String(html).replace(/<[^>]+>/g, ' ')
+    });
+    return { ok: true };
+  } catch (err) {
+    return reply.code(500).send({ error: 'Test send failed: ' + err.message });
+  }
+});
+app.post('/api/campaigns/:id/duplicate', { preHandler: csrfAuth }, async (req, reply) => {
+  const [c] = await rows('SELECT * FROM campaigns WHERE id=?', [req.params.id]);
+  if (!c) return reply.code(404).send({ error: 'Campaign not found' });
+  const [r] = await rows('INSERT INTO campaigns(account_id, name, subject, preheader, html, plain) VALUES (?,?,?,?,?,?)',
+    [c.account_id, String(c.name || '') + ' (Copy)', String(c.subject), String(c.preheader || ''), c.html, c.plain]);
+  const newId = r.insertId;
+  await rows('INSERT INTO campaign_audience(campaign_id, contact_id) SELECT ?, contact_id FROM campaign_audience WHERE campaign_id=?', [newId, c.id]);
+  await audit(req, 'campaign_duplicated', `Campaign ID ${newId} from ${c.id}`);
+  return { id: newId };
+});
+
 app.get('/api/campaigns/:id/messages',{preHandler:auth},async(req)=>rows('SELECT m.id,c.email,m.status,m.attempts,m.last_error,m.sent_at FROM messages m JOIN contacts c ON c.id=m.contact_id WHERE m.campaign_id=? ORDER BY m.id DESC LIMIT 500',[req.params.id]));
 app.get('/api/campaigns/:id/messages/export.csv',{preHandler:auth},async(req,reply)=>{
   const id=Number(req.params.id);

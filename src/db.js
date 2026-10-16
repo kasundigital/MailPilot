@@ -36,6 +36,8 @@ export async function init(){const statements=[
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   account_id INT NOT NULL,
   subject VARCHAR(255) NOT NULL,
+  name VARCHAR(255),
+  preheader VARCHAR(255),
   html MEDIUMTEXT NOT NULL,
   plain MEDIUMTEXT NOT NULL,
   status ENUM('draft','running','paused','completed') DEFAULT 'draft',
@@ -57,6 +59,13 @@ export async function init(){const statements=[
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(contact_id) REFERENCES contacts(id)
 )`,
+ `CREATE TABLE IF NOT EXISTS campaign_audience (
+  campaign_id BIGINT NOT NULL,
+  contact_id BIGINT NOT NULL,
+  PRIMARY KEY(campaign_id,contact_id),
+  FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
+  FOREIGN KEY(contact_id) REFERENCES contacts(id)
+)`,
 `CREATE TABLE IF NOT EXISTS admin_credentials (
   id TINYINT PRIMARY KEY,
   password_hash VARCHAR(255) NOT NULL,
@@ -71,4 +80,17 @@ export async function init(){const statements=[
   ip_address VARCHAR(45) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`
-];for(const s of statements)await pool.query(s)}
+];for(const s of statements)await pool.query(s)
+
+  try {
+    await pool.query('ALTER TABLE campaigns ADD COLUMN name VARCHAR(255)');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') console.warn('Could not add name to campaigns', e.message);
+  }
+  try {
+    await pool.query('ALTER TABLE campaigns ADD COLUMN preheader VARCHAR(255)');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') console.warn('Could not add preheader to campaigns', e.message);
+  }
+
+}
