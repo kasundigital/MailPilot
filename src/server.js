@@ -122,7 +122,7 @@ app.get('/unsubscribe', async (req, reply) => {
 <title>Unsubscribe</title>
 <h1>Unsubscribe</h1>
 <form method="POST">
-  <input type="hidden" name="id" value="${String(id).replace(/\D/g, '')}">
+  <input type="hidden" name="id" value="${escapeHtmlAttribute(id)}">
   <input type="hidden" name="email" value="${escapeHtmlAttribute(email)}">
   <input type="hidden" name="sig" value="${escapeHtmlAttribute(sig)}">
   <button>Confirm unsubscribe</button>
