@@ -154,6 +154,18 @@ app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{const x=req.b
 app.post('/api/campaigns/:id/start',{preHandler:csrfAuth},async(req,reply)=>{const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);if(!c||!['draft','paused'].includes(c.status))return reply.code(400).send({error:'Campaign cannot be started'});if(c.status==='draft'){await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1",[c.id])}await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);await audit(req,'campaign_started',`Campaign ID ${c.id}`);return {ok:true}});
 app.post('/api/campaigns/:id/pause',{preHandler:csrfAuth},async(req)=>{await rows("UPDATE campaigns SET status='paused' WHERE id=? AND status='running'",[req.params.id]);await audit(req,'campaign_paused',`Campaign ID ${req.params.id}`);return {ok:true}});
 app.get('/api/campaigns/:id/messages',{preHandler:auth},async(req)=>rows('SELECT m.id,c.email,m.status,m.attempts,m.last_error,m.sent_at FROM messages m JOIN contacts c ON c.id=m.contact_id WHERE m.campaign_id=? ORDER BY m.id DESC LIMIT 500',[req.params.id]));
+app.get('/api/campaigns/:id/messages/export.csv',{preHandler:auth},async(req,reply)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<=0)return reply.code(400).send({error:'Invalid campaign ID'});
+  const messages=await rows('SELECT m.id,c.email,m.status,m.attempts,m.last_error,m.sent_at FROM messages m JOIN contacts c ON c.id=m.contact_id WHERE m.campaign_id=? ORDER BY m.id DESC LIMIT 10000',[id]);
+  const fields=['id','email','status','attempts','last_error','sent_at'];
+  const lines=[fields.join(','),...messages.map(message=>fields.map(field=>csvCell(message[field])).join(','))];
+  reply.header('Content-Type','text/csv; charset=utf-8');
+  reply.header('Content-Disposition','attachment; filename="mailpilot-campaign-'+id+'-messages.csv"');
+  reply.header('Cache-Control','no-store');
+  return '\uFEFF'+lines.join('\r\n')+'\r\n';
+});
+
 app.get('/unsubscribe', async (req, reply) => {
   const { id, email, sig } = req.query || {};
   if (!validSignature(id, email, sig, JWT_SECRET))
