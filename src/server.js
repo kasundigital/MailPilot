@@ -40,7 +40,18 @@ await app.register(csrfProtection,{cookieOpts:{secure:true,sameSite:'strict',pat
 await app.register(jwt,{secret:JWT_SECRET,cookie:{cookieName:'mailpilot_session',signed:false}});
 await app.register(rateLimit,{global:false});
 const hash=await bcrypt.hash(ADMIN_PASSWORD,12);
-const auth=async(req,reply)=>{try{await req.jwtVerify()}catch{return reply.code(401).send({error:'Unauthorized'})}};
+const adminCredentials=async()=>{
+  const [record]=await rows('SELECT password_hash,session_version FROM admin_credentials WHERE id=1');
+  return record||{password_hash:hash,session_version:0};
+};
+const auth=async(req,reply)=>{
+  try{
+    await req.jwtVerify();
+    const credentials=await adminCredentials();
+    if(req.user.sub!==ADMIN_EMAIL||Number(req.user.version||0)!==Number(credentials.session_version))
+      return reply.code(401).send({error:'Unauthorized'});
+  }catch{return reply.code(401).send({error:'Unauthorized'})}
+};
 const csrfAuth=async(req,reply)=>{
   await auth(req,reply);
   if(reply.sent)return;
@@ -66,10 +77,11 @@ app.post('/api/login', {
   }
 }, async (req, reply) => {
   const { email, password } = req.body || {};
-  if (email !== ADMIN_EMAIL || typeof password !== 'string' || !(await bcrypt.compare(password, hash))) {
+  const credentials=await adminCredentials();
+  if (email !== ADMIN_EMAIL || typeof password !== 'string' || !(await bcrypt.compare(password,credentials.password_hash))) {
     await audit(req,'login_failed',String(email||'').slice(0,255));return reply.code(401).send({ error: 'Invalid credentials' });
   }
-  const token = app.jwt.sign({ sub: ADMIN_EMAIL }, { expiresIn: '8h' });
+  const token = app.jwt.sign({ sub: ADMIN_EMAIL,version:Number(credentials.session_version) }, { expiresIn: '8h' });
   reply.setCookie('mailpilot_session', token, {
     httpOnly: true,
     secure: true,
@@ -82,6 +94,21 @@ app.post('/api/login', {
 });
 app.post('/api/logout',{preHandler:csrfAuth},async(req,reply)=>{await audit(req,'logout');reply.clearCookie('mailpilot_session',{path:'/'});return {ok:true}});
 app.get('/api/me',{preHandler:auth},async(req,reply)=>({email:ADMIN_EMAIL,csrfToken:await reply.generateCsrf()}));
+app.post('/api/me/password',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'15 minutes'}}},async(req,reply)=>{
+  const {currentPassword,newPassword}=req.body||{};
+  if(typeof currentPassword!=='string'||typeof newPassword!=='string'||
+    newPassword.length<12||newPassword.length>128||currentPassword===newPassword)
+    return reply.code(400).send({error:'Password must be 12–128 characters and different from current password'});
+  const credentials=await adminCredentials();
+  if(!(await bcrypt.compare(currentPassword,credentials.password_hash)))
+    return reply.code(401).send({error:'Current password is incorrect'});
+  const nextHash=await bcrypt.hash(newPassword,12);
+  await rows('INSERT INTO admin_credentials(id,password_hash,session_version) VALUES (1,?,1) ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash),session_version=session_version+1',[nextHash]);
+  await audit(req,'password_changed');
+  reply.clearCookie('mailpilot_session',{path:'/'});
+  return {ok:true,signInRequired:true};
+});
+
 app.get('/api/stats',{preHandler:auth},async()=>{const [contacts]=await rows('SELECT COUNT(*) total,SUM(subscribed=1) subscribed FROM contacts');const [messages]=await rows("SELECT COUNT(*) total,SUM(status='sent') sent,SUM(status='queued') queued,SUM(status='failed') failed FROM messages");return {contacts,messages}});
 app.get('/api/accounts',{preHandler:auth},async()=>rows('SELECT id,label,host,port,secure,username,from_name,from_email,per_minute,per_hour,per_day,enabled FROM accounts ORDER BY id DESC'));
 app.post('/api/accounts', { preHandler: csrfAuth }, async (req, reply) => {
