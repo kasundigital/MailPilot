@@ -111,15 +111,44 @@ export async function init(){const statements=[
 )`,
 `CREATE TABLE IF NOT EXISTS actions_catalog (
   id VARCHAR(36) PRIMARY KEY,
-  
-  
-  
   key_name VARCHAR(128) NOT NULL,
   schema JSON NOT NULL,
   description TEXT,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY (key_name)
+)`,
+`CREATE TABLE IF NOT EXISTS workflow_jobs (
+  id VARCHAR(36) PRIMARY KEY,
+  workflow_id VARCHAR(36) NOT NULL,
+  run_id VARCHAR(36) NULL,
+  node_key VARCHAR(255) NOT NULL,
+  payload JSON NOT NULL,
+  status ENUM('queued','processing','succeeded','failed') NOT NULL DEFAULT 'queued',
+  attempts INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 5,
+  lease_owner VARCHAR(64) NULL,
+  lease_expires_at TIMESTAMP NULL,
+  error TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_workflow_jobs_status (status),
+  INDEX idx_workflow_jobs_lease (lease_expires_at, status),
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+)`,
+`CREATE TABLE IF NOT EXISTS workflow_trigger_events (
+  id VARCHAR(36) PRIMARY KEY,
+  trigger_id VARCHAR(36) NOT NULL,
+  workflow_id VARCHAR(36) NOT NULL,
+  external_event_id VARCHAR(255) NULL,
+  payload JSON NOT NULL,
+  status ENUM('received','processed','rejected') NOT NULL DEFAULT 'received',
+  signature_valid BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_workflow_trigger_events_trigger_id (trigger_id),
+  INDEX idx_workflow_trigger_events_workflow_id (workflow_id),
+  FOREIGN KEY (trigger_id) REFERENCES triggers(id) ON DELETE CASCADE,
+  FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
 )`
-];
-for(const s of statements)await pool.query(s)}
+];for(const s of statements)await pool.query(s)}
