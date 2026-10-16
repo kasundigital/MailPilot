@@ -65,6 +65,12 @@ PY
 fi
 cd "$DIR"
 [[ -f docker-compose.yml ]] || fail "Missing docker-compose.yml"
+# The installer uses umask 077 to protect credentials. Make only the
+# application source tree readable/traversable by the non-root Docker user.
+# Never relax permissions on .env, initial-admin-credentials.txt, or DB data.
+[[ -f src/server.js && -d public ]] || fail "Application source files missing"
+chmod -R a+rX src public
+log "Verified application source permissions for non-root Docker startup"
 docker compose config -q || fail "Invalid Compose configuration"
 log "Building and starting containers"
 docker compose up -d --build
