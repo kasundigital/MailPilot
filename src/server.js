@@ -12,7 +12,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
 import {checkSenderDns} from './dns-diagnostics.js';
-import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits} from './core.js';
+import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
 
 if (!ADMIN_EMAIL) {
@@ -113,6 +113,16 @@ app.get('/api/accounts/:id/dns',{preHandler:auth,config:{rateLimit:{max:10,timeW
   return checkSenderDns(account.from_email);
 });
 app.post('/api/accounts/:id/test',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
+const csvCell = value => '"' + String(value ?? '').replace(/^[=+@\-\t\r]/, "'app.get('/api/contacts',{").replace(/"/g, '""') + '"';
+app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
+  const contacts=await rows('SELECT email,subscribed,consent_source,created_at,unsubscribed_at FROM contacts ORDER BY id');
+  const header=['email','subscribed','consent_source','created_at','unsubscribed_at'];
+  const lines=[header.join(','),...contacts.map(c=>header.map(k=>csvCell(c[k])).join(','))];
+  reply.header('Content-Type','text/csv; charset=utf-8');
+  reply.header('Content-Disposition','attachment; filename="mailpilot-contacts.csv"');
+  reply.header('Cache-Control','no-store');
+  return '\uFEFF'+lines.join('\r\n')+'\r\n';
+});
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
 app.post('/api/contacts/import',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}return {received:parsed.length,added,duplicates:parsed.length-added}});
 app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
@@ -129,26 +139,119 @@ app.get('/unsubscribe', async (req, reply) => {
 <title>Unsubscribe</title>
 <h1>Unsubscribe</h1>
 <form method="POST">
-  <input type="hidden" name="id" value="${String(id).replace(/\D/g, '')}">
-  <input type="hidden" name="email" value="${String(email).replace(/["<>"]/g, '')}">
-  <input type="hidden" name="sig" value="${sig}">
+  <input type="hidden" name="id" value="${escapeHtml(id)}">
+  <input type="hidden" name="email" value="${escapeHtml(email)}">
+  <input type="hidden" name="sig" value="${escapeHtml(sig)}">
   <button>Confirm unsubscribe</button>
 </form>`);
 });
 app.post('/unsubscribe',async(req,reply)=>{const x=req.body||{};if(!validSignature(x.id,x.email,x.sig,JWT_SECRET))return reply.code(400).type('text/plain').send('Invalid link');await rows('UPDATE contacts SET subscribed=0,unsubscribed_at=NOW() WHERE id=? AND email=?',[x.id,x.email]);await rows("UPDATE messages SET status='suppressed' WHERE contact_id=? AND status='queued'",[x.id]);return reply.type('text/plain').send('You have been unsubscribed.')});
 await app.register(fastifyStatic,{root:path.join(path.dirname(fileURLToPath(import.meta.url)),'../public'),prefix:'/'});
-let busy=false;
-async function tick(){if(busy)return;busy=true;try{
-const candidates=await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
-const j=candidates[0];if(!j)return;
-if(!j.subscribed){await rows("UPDATE messages SET status='suppressed' WHERE id=?",[j.message_id]);return}
-const [limits]=await rows("SELECT SUM(m.sent_at>=NOW()-INTERVAL 1 MINUTE) minute_count,SUM(m.sent_at>=NOW()-INTERVAL 1 HOUR) hour_count,SUM(m.sent_at>=NOW()-INTERVAL 1 DAY) day_count FROM messages m JOIN campaigns c ON c.id=m.campaign_id WHERE c.account_id=? AND m.status='sent'",[j.account_id]);
-if(Number(limits.minute_count)>=j.per_minute||Number(limits.hour_count)>=j.per_hour||Number(limits.day_count)>=j.per_day)return;
-const taken=await rows("UPDATE messages SET status='sending',attempts=attempts+1 WHERE id=? AND status='queued'",[j.message_id]);if(!taken.affectedRows)return;
-const url=new URL('/unsubscribe',PUBLIC_URL);url.searchParams.set('id',j.contact_id);url.searchParams.set('email',j.email);url.searchParams.set('sig',signUnsubscribe(j.contact_id,j.email,JWT_SECRET));
-const unsubscribe=url.toString(),tx=nodemailer.createTransport({host:j.host,port:j.port,secure:!!j.secure,requireTLS:!j.secure,auth:{user:j.username,pass:decrypt(j.password_cipher,ENCRYPTION_KEY)},connectionTimeout:15000,socketTimeout:20000});
-try{await tx.sendMail({from:{name:j.from_name,address:j.from_email},to:j.email,subject:j.subject,html:j.html+'<p style="font-size:12px">Unsubscribe: <a href="'+unsubscribe+'">click here</a></p>',text:j.plain+'\n\nUnsubscribe: '+unsubscribe,headers:{'List-Unsubscribe':'<'+unsubscribe+'>'},list:{unsubscribe:{url:unsubscribe}}});await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL WHERE id=?",[j.message_id])}
-catch(e){const permanent=Number(e.responseCode)>=500||j.attempts>=4;const backoff=Math.min(3600,60*2**j.attempts);await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?",[permanent?'failed':'queued',backoff,String(e.message).slice(0,1000),j.message_id])}finally{tx.close()}
-await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))",[j.campaign_id]);
-}catch(e){app.log.error(e)}finally{busy=false}}
-await init();await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");setInterval(tick,1000).unref();const port = Number(process.env.APP_PORT || process.env.PORT || 3088);await app.listen({port,host:'0.0.0.0'});
+let busy = false;
+
+async function getCandidate() {
+  const candidates = await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
+  return candidates[0];
+}
+
+async function handleUnsubscribed(j) {
+  if (!j.subscribed) {
+    await rows("UPDATE messages SET status='suppressed' WHERE id=?", [j.message_id]);
+    return true;
+  }
+  return false;
+}
+
+async function checkRateLimits(j) {
+  const [limits] = await rows("SELECT SUM(m.sent_at>=NOW()-INTERVAL 1 MINUTE) minute_count,SUM(m.sent_at>=NOW()-INTERVAL 1 HOUR) hour_count,SUM(m.sent_at>=NOW()-INTERVAL 1 DAY) day_count FROM messages m JOIN campaigns c ON c.id=m.campaign_id WHERE c.account_id=? AND m.status='sent'", [j.account_id]);
+  return (Number(limits.minute_count) >= j.per_minute || Number(limits.hour_count) >= j.per_hour || Number(limits.day_count) >= j.per_day);
+}
+
+async function takeMessage(message_id) {
+  const taken = await rows("UPDATE messages SET status='sending',attempts=attempts+1 WHERE id=? AND status='queued'", [message_id]);
+  return taken.affectedRows > 0;
+}
+
+async function sendCandidateMessage(j) {
+  const url = new URL('/unsubscribe', PUBLIC_URL);
+  url.searchParams.set('id', j.contact_id);
+  url.searchParams.set('email', j.email);
+  url.searchParams.set('sig', signUnsubscribe(j.contact_id, j.email, JWT_SECRET));
+  const unsubscribe = url.toString();
+
+  const tx = nodemailer.createTransport({
+    host: j.host,
+    port: j.port,
+    secure: !!j.secure,
+    requireTLS: !j.secure,
+    auth: {
+      user: j.username,
+      pass: decrypt(j.password_cipher, ENCRYPTION_KEY)
+    },
+    connectionTimeout: 15000,
+    socketTimeout: 20000
+  });
+
+  try {
+    await tx.sendMail({
+      from: { name: j.from_name, address: j.from_email },
+      to: j.email,
+      subject: j.subject,
+      html: j.html + '<p style="font-size:12px">Unsubscribe: <a href="' + unsubscribe + '">click here</a></p>',
+      text: j.plain + '\n\nUnsubscribe: ' + unsubscribe,
+      headers: { 'List-Unsubscribe': '<' + unsubscribe + '>' },
+      list: { unsubscribe: { url: unsubscribe } }
+    });
+    await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL WHERE id=?", [j.message_id]);
+  } catch (e) {
+    const permanent = Number(e.responseCode) >= 500 || j.attempts >= 4;
+    const backoff = Math.min(3600, 60 * 2 ** j.attempts);
+    await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?", [permanent ? 'failed' : 'queued', backoff, String(e.message).slice(0, 1000), j.message_id]);
+  } finally {
+    tx.close();
+  }
+}
+
+async function checkCampaignCompletion(campaign_id) {
+  await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))", [campaign_id]);
+}
+
+async function tick() {
+  if (busy) return;
+  busy = true;
+  try {
+    const j = await getCandidate();
+    if (!j) return;
+
+    const suppressed = await handleUnsubscribed(j);
+    if (suppressed) return;
+
+    const isLimited = await checkRateLimits(j);
+    if (isLimited) return;
+
+    const taken = await takeMessage(j.message_id);
+    if (!taken) return;
+
+    await sendCandidateMessage(j);
+    await checkCampaignCompletion(j.campaign_id);
+  } catch (e) {
+    app.log.error(e);
+  } finally {
+    busy = false;
+  }
+}
+
+export { app, tick };
+
+async function startServer() {
+  await init();
+  await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");
+  setInterval(tick,1000).unref();
+  const port = Number(process.env.APP_PORT || process.env.PORT || 3088);
+  await app.listen({port,host:'0.0.0.0'});
+}
+
+// Importing for API tests must not open a listening socket or query the DB.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await startServer();
+}
