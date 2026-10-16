@@ -11,7 +11,7 @@ import sanitizeHtml from 'sanitize-html';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
-import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits} from './core.js';
+import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
 
 if (!ADMIN_EMAIL) {
@@ -131,9 +131,9 @@ app.get('/unsubscribe', async (req, reply) => {
 <title>Unsubscribe</title>
 <h1>Unsubscribe</h1>
 <form method="POST">
-  <input type="hidden" name="id" value="${String(id).replace(/\D/g, '')}">
-  <input type="hidden" name="email" value="${String(email).replace(/["<>"]/g, '')}">
-  <input type="hidden" name="sig" value="${sig}">
+  <input type="hidden" name="id" value="${escapeHtml(id)}">
+  <input type="hidden" name="email" value="${escapeHtml(email)}">
+  <input type="hidden" name="sig" value="${escapeHtml(sig)}">
   <button>Confirm unsubscribe</button>
 </form>`);
 });
