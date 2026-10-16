@@ -1,3 +1,4 @@
+import { getCsrfSession } from './test/csrf-helper.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { signUnsubscribe } from './core.js';
@@ -92,6 +93,7 @@ test('server test api/accounts', async (t) => {
   };
 
   const token = app.jwt.sign({sub: process.env.ADMIN_EMAIL},{expiresIn:'8h'});
+  const csrf = await getCsrfSession(app, process.env.ADMIN_EMAIL);
 
   await t.test('GET /api/accounts', async () => {
     const res = await app.inject({
@@ -108,7 +110,7 @@ test('server test api/accounts', async (t) => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/accounts',
-      cookies: { mailpilot_session: token },
+      headers: csrf.headers,
       payload: { perMinute: 10, perHour: 100, perDay: 1000 }
     });
     assert.equal(res.statusCode, 400);
@@ -119,7 +121,7 @@ test('server test api/accounts', async (t) => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/accounts',
-      cookies: { mailpilot_session: token },
+      headers: csrf.headers,
       payload: {
         label: 'My Account',
         host: 'smtp.example.com',
@@ -140,7 +142,7 @@ test('server test api/accounts', async (t) => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/accounts',
-      cookies: { mailpilot_session: token },
+      headers: csrf.headers,
       payload: {
         label: 'My Account',
         host: 'smtp.example.com',

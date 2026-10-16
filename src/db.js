@@ -56,5 +56,13 @@ export async function init(){const statements=[
   INDEX message_work(status,next_attempt),
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(contact_id) REFERENCES contacts(id)
+)`,
+`CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  admin_email VARCHAR(255) NOT NULL,
+  action VARCHAR(255) NOT NULL,
+  details TEXT NOT NULL,
+  ip_address VARCHAR(45) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`
 ];for(const s of statements)await pool.query(s)}

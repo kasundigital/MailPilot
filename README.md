@@ -64,6 +64,23 @@ docker compose up -d --build
 
 Go to `http://YOUR_VPS_IP:3088` to log in. **Use HTTPS through Caddy/Nginx before public deployment**; bind the port to 127.0.0.1 behind your reverse proxy.
 
+### HTTPS Production Deployment (Caddy Example)
+For production, you must use HTTPS to secure login credentials, CSRF tokens, and session cookies. Install Caddy and configure your `Caddyfile`:
+
+```
+yourdomain.com {
+    reverse_proxy 127.0.0.1:3088
+}
+```
+Update `PUBLIC_URL` in your `.env` to match `https://yourdomain.com`.
+
+### Provider-Specific Quota Guidance
+When configuring SMTP limits, adhere to your provider's actual quotas to avoid temporary bans. Example guidelines (verify with your provider):
+- **Amazon SES**: Starts at 14 emails/second (~840/min).
+- **SendGrid**: Recommended pacing based on plan, often thousands per minute.
+- **Mailgun**: Scalable, but rate-limiting errors (429) can occur on standard plans if pushed too fast.
+Set conservative limits initially (e.g., 50/minute) and scale up as your IP warms up.
+
 Use `openssl rand -hex 32` for `JWT_SECRET` and `ENCRYPTION_KEY`. Enter a real SMTP provider quota; illustrative limits are NOT blacklist protection. No email is dispatched until you create and start a campaign. Only import addresses with permission to receive your mail.
 
 ## SMTP & compliance

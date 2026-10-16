@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
+import csrfProtection from '@fastify/csrf-protection';
 import jwt from '@fastify/jwt';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -24,7 +25,7 @@ if (!ADMIN_PASSWORD || ADMIN_PASSWORD.startsWith('REPLACE_')) {
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
   throw Error('Configure valid JWT_SECRET');
 }
-if (!ENCRYPTION_KEY || !/^[0-9a-f]{64}$/i.test(ENCRYPTION_KEY)) {
+if (!ENCRYPTION_KEY || !ENCRYPTION_KEY.split(',').every(k => /^[0-9a-f]{64}$/i.test(k.trim()))) {
   throw Error('Configure valid ENCRYPTION_KEY');
 }
 if (!PUBLIC_URL || !PUBLIC_URL.startsWith('https://')) {
@@ -35,12 +36,29 @@ const app=Fastify({logger:true,bodyLimit:1_000_000,trustProxy:false});
 await app.register(helmet,{contentSecurityPolicy:false});
 await app.register(cookie);
 await app.register(formbody);
+await app.register(csrfProtection,{cookieOpts:{secure:true,sameSite:'strict',path:'/'}});
 await app.register(jwt,{secret:JWT_SECRET,cookie:{cookieName:'mailpilot_session',signed:false}});
 await app.register(rateLimit,{global:false});
 const hash=await bcrypt.hash(ADMIN_PASSWORD,12);
 const auth=async(req,reply)=>{try{await req.jwtVerify()}catch{return reply.code(401).send({error:'Unauthorized'})}};
+const csrfAuth=async(req,reply)=>{
+  await auth(req,reply);
+  if(reply.sent)return;
+  await new Promise((resolve,reject)=>{
+    app.csrfProtection(req,reply,(err)=>{
+      if(err)reject(err);
+      else resolve();
+    });
+  });
+};
 app.setErrorHandler((err,req,reply)=>{req.log.error(err);reply.code(err.statusCode&&err.statusCode<500?err.statusCode:400).send({error:err.statusCode&&err.statusCode<500?err.message:'Request failed'})});
 const rows=async(sql,params=[])=>{const [r]=await pool.query(sql,params);return r};
+const audit = async (req, action, details='') => {
+  try {
+    await rows('INSERT INTO audit_logs(admin_email,action,details,ip_address) VALUES (?,?,?,?)',
+      [ADMIN_EMAIL, action, String(details).slice(0,255), String(req.ip||'unknown').slice(0,45)]);
+  } catch (err) { req.log.warn({err}, 'Audit logging failed'); }
+};
 app.get('/health',async()=>({ok:true}));
 app.post('/api/login', {
   config: {
@@ -49,7 +67,7 @@ app.post('/api/login', {
 }, async (req, reply) => {
   const { email, password } = req.body || {};
   if (email !== ADMIN_EMAIL || typeof password !== 'string' || !(await bcrypt.compare(password, hash))) {
-    return reply.code(401).send({ error: 'Invalid credentials' });
+    await audit(req,'login_failed',String(email||'').slice(0,255));return reply.code(401).send({ error: 'Invalid credentials' });
   }
   const token = app.jwt.sign({ sub: ADMIN_EMAIL }, { expiresIn: '8h' });
   reply.setCookie('mailpilot_session', token, {
@@ -59,13 +77,14 @@ app.post('/api/login', {
     path: '/',
     maxAge: 28800
   });
+  await audit(req, 'login_success');
   return { ok: true };
 });
-app.post('/api/logout',{preHandler:auth},async(req,reply)=>{reply.clearCookie('mailpilot_session',{path:'/'});return {ok:true}});
-app.get('/api/me',{preHandler:auth},async()=>({email:ADMIN_EMAIL}));
+app.post('/api/logout',{preHandler:csrfAuth},async(req,reply)=>{await audit(req,'logout');reply.clearCookie('mailpilot_session',{path:'/'});return {ok:true}});
+app.get('/api/me',{preHandler:auth},async(req,reply)=>({email:ADMIN_EMAIL,csrfToken:await reply.generateCsrf()}));
 app.get('/api/stats',{preHandler:auth},async()=>{const [contacts]=await rows('SELECT COUNT(*) total,SUM(subscribed=1) subscribed FROM contacts');const [messages]=await rows("SELECT COUNT(*) total,SUM(status='sent') sent,SUM(status='queued') queued,SUM(status='failed') failed FROM messages");return {contacts,messages}});
 app.get('/api/accounts',{preHandler:auth},async()=>rows('SELECT id,label,host,port,secure,username,from_name,from_email,per_minute,per_hour,per_day,enabled FROM accounts ORDER BY id DESC'));
-app.post('/api/accounts', { preHandler: auth }, async (req, reply) => {
+app.post('/api/accounts', { preHandler: csrfAuth }, async (req, reply) => {
   const x = req.body || {};
   const limit = safeLimits({
     perMinute: x.perMinute,
@@ -112,8 +131,12 @@ app.get('/api/accounts/:id/dns',{preHandler:auth,config:{rateLimit:{max:10,timeW
   if(!account)return reply.code(404).send({error:'Account not found'});
   return checkSenderDns(account.from_email);
 });
-app.post('/api/accounts/:id/test',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
-const csvCell = value => '"' + String(value ?? '').replace(/^[=+@\-\t\r]/, "'app.get('/api/contacts',{").replace(/"/g, '""') + '"';
+app.post('/api/accounts/:id/test',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const [a]=await rows('SELECT * FROM accounts WHERE id=?',[req.params.id]);if(!a)return reply.code(404).send({error:'Not found'});const tx=nodemailer.createTransport({host:a.host,port:a.port,secure:!!a.secure,requireTLS:!a.secure,auth:{user:a.username,pass:decrypt(a.password_cipher,ENCRYPTION_KEY)},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000});try{await tx.verify();return {ok:true}}finally{tx.close()}});
+const csvCell = value => {
+  const text = String(value ?? '');
+  const safe = /^[=+@\-\t\r\n]/.test(text) ? "'" + text : text;
+  return '"' + safe.replace(/"/g, '""') + '"';
+};
 app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
   const contacts=await rows('SELECT email,subscribed,consent_source,created_at,unsubscribed_at FROM contacts ORDER BY id');
   const header=['email','subscribed','consent_source','created_at','unsubscribed_at'];
@@ -124,12 +147,12 @@ app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
   return '\uFEFF'+lines.join('\r\n')+'\r\n';
 });
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
-app.post('/api/contacts/import',{preHandler:auth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}return {received:parsed.length,added,duplicates:parsed.length-added}});
+app.post('/api/contacts/import',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}await audit(req,'contacts_imported',`Added ${added} contacts`);return {received:parsed.length,added,duplicates:parsed.length-added}});
 app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
 const safeStyleRegex=/^(?!.*(?:expression|-moz-binding|url\s*\()).*$/i;const safeStyle=[safeStyleRegex];const allowedStylesObj={'color':safeStyle,'background':safeStyle,'background-color':safeStyle,'font-family':safeStyle,'font-size':safeStyle,'font-weight':safeStyle,'font-style':safeStyle,'text-align':safeStyle,'text-decoration':safeStyle,'line-height':safeStyle,'margin':safeStyle,'margin-top':safeStyle,'margin-right':safeStyle,'margin-bottom':safeStyle,'margin-left':safeStyle,'padding':safeStyle,'padding-top':safeStyle,'padding-right':safeStyle,'padding-bottom':safeStyle,'padding-left':safeStyle,'border':safeStyle,'border-top':safeStyle,'border-right':safeStyle,'border-bottom':safeStyle,'border-left':safeStyle,'border-radius':safeStyle,'width':safeStyle,'max-width':safeStyle,'height':safeStyle,'max-height':safeStyle,'display':safeStyle,'vertical-align':safeStyle,'list-style':safeStyle,'list-style-type':safeStyle,'border-collapse':safeStyle,'border-spacing':safeStyle,'color-scheme':safeStyle};
-app.post('/api/campaigns',{preHandler:auth},async(req,reply)=>{const x=req.body||{};if(!x.accountId||!String(x.subject||'').trim()||!String(x.html||'').trim())return reply.code(400).send({error:'Account, subject and HTML required'});const clean=sanitizeHtml(String(x.html),{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']),allowVulnerableTags:true,allowedAttributes:{...sanitizeHtml.defaults.allowedAttributes,a:['href','target','rel'],img:['src','alt','width','height'],'*':['style']},allowedStyles:{'*':allowedStylesObj},allowedSchemes:['https','http','mailto']});const accounts=await rows('SELECT id FROM accounts WHERE id=? AND enabled=1',[x.accountId]);if(!accounts.length)return reply.code(400).send({error:'Active account required'});const r=await rows('INSERT INTO campaigns(account_id,subject,html,plain) VALUES (?,?,?,?)',[x.accountId,String(x.subject).slice(0,255),clean,String(x.plain||clean.replace(/<[^>]+>/g,' '))]);return {id:r.insertId}});
-app.post('/api/campaigns/:id/start',{preHandler:auth},async(req,reply)=>{const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);if(!c||!['draft','paused'].includes(c.status))return reply.code(400).send({error:'Campaign cannot be started'});if(c.status==='draft'){await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1",[c.id])}await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);return {ok:true}});
-app.post('/api/campaigns/:id/pause',{preHandler:auth},async(req)=>{await rows("UPDATE campaigns SET status='paused' WHERE id=? AND status='running'",[req.params.id]);return {ok:true}});
+app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{const x=req.body||{};if(!x.accountId||!String(x.subject||'').trim()||!String(x.html||'').trim())return reply.code(400).send({error:'Account, subject and HTML required'});const clean=sanitizeHtml(String(x.html),{allowedTags:sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']),allowVulnerableTags:true,allowedAttributes:{...sanitizeHtml.defaults.allowedAttributes,a:['href','target','rel'],img:['src','alt','width','height'],'*':['style']},allowedStyles:{'*':allowedStylesObj},allowedSchemes:['https','http','mailto']});const accounts=await rows('SELECT id FROM accounts WHERE id=? AND enabled=1',[x.accountId]);if(!accounts.length)return reply.code(400).send({error:'Active account required'});const r=await rows('INSERT INTO campaigns(account_id,subject,html,plain) VALUES (?,?,?,?)',[x.accountId,String(x.subject).slice(0,255),clean,String(x.plain||clean.replace(/<[^>]+>/g,' '))]);await audit(req,'campaign_created',`Campaign ID ${r.insertId}`);return {id:r.insertId}});
+app.post('/api/campaigns/:id/start',{preHandler:csrfAuth},async(req,reply)=>{const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);if(!c||!['draft','paused'].includes(c.status))return reply.code(400).send({error:'Campaign cannot be started'});if(c.status==='draft'){await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1",[c.id])}await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);await audit(req,'campaign_started',`Campaign ID ${c.id}`);return {ok:true}});
+app.post('/api/campaigns/:id/pause',{preHandler:csrfAuth},async(req)=>{await rows("UPDATE campaigns SET status='paused' WHERE id=? AND status='running'",[req.params.id]);await audit(req,'campaign_paused',`Campaign ID ${req.params.id}`);return {ok:true}});
 app.get('/api/campaigns/:id/messages',{preHandler:auth},async(req)=>rows('SELECT m.id,c.email,m.status,m.attempts,m.last_error,m.sent_at FROM messages m JOIN contacts c ON c.id=m.contact_id WHERE m.campaign_id=? ORDER BY m.id DESC LIMIT 500',[req.params.id]));
 app.get('/unsubscribe', async (req, reply) => {
   const { id, email, sig } = req.query || {};

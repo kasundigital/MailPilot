@@ -1,3 +1,4 @@
+import { getCsrfSession } from './csrf-helper.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { patchServer, restoreServer } from './helper.js';
@@ -45,7 +46,7 @@ test('POST /api/campaigns validates input', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/campaigns',
-    headers: { cookie: `mailpilot_session=${token}` },
+    headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: { accountId: 1, subject: '' }
   });
 
@@ -59,7 +60,7 @@ test('POST /api/campaigns rejects non-existent account', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/campaigns',
-    headers: { cookie: `mailpilot_session=${token}` },
+    headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: { accountId: 2, subject: 'Valid', html: '<p>HTML</p>' }
   });
 
@@ -74,7 +75,7 @@ test('POST /api/campaigns sanitizes HTML and inserts campaign', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/api/campaigns',
-    headers: { cookie: `mailpilot_session=${token}` },
+    headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: {
       accountId: 1,
       subject: 'My Campaign',
@@ -101,7 +102,7 @@ test('POST /api/campaigns generates plaintext from HTML if not provided', async 
   const res = await app.inject({
     method: 'POST',
     url: '/api/campaigns',
-    headers: { cookie: `mailpilot_session=${token}` },
+    headers: (await getCsrfSession(app, process.env.ADMIN_EMAIL)).headers,
     payload: {
       accountId: 1,
       subject: 'My Campaign',
