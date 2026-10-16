@@ -113,6 +113,7 @@ app.post('/api/campaigns',{preHandler:auth},async(req,reply)=>{const x=req.body|
 app.post('/api/campaigns/:id/start',{preHandler:auth},async(req,reply)=>{const [c]=await rows('SELECT * FROM campaigns WHERE id=?',[req.params.id]);if(!c||!['draft','paused'].includes(c.status))return reply.code(400).send({error:'Campaign cannot be started'});if(c.status==='draft'){await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1",[c.id])}await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);return {ok:true}});
 app.post('/api/campaigns/:id/pause',{preHandler:auth},async(req)=>{await rows("UPDATE campaigns SET status='paused' WHERE id=? AND status='running'",[req.params.id]);return {ok:true}});
 app.get('/api/campaigns/:id/messages',{preHandler:auth},async(req)=>rows('SELECT m.id,c.email,m.status,m.attempts,m.last_error,m.sent_at FROM messages m JOIN contacts c ON c.id=m.contact_id WHERE m.campaign_id=? ORDER BY m.id DESC LIMIT 500',[req.params.id]));
+const escapeHtmlAttribute = value => String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 app.get('/unsubscribe', async (req, reply) => {
   const { id, email, sig } = req.query || {};
   if (!validSignature(id, email, sig, JWT_SECRET))
@@ -122,8 +123,8 @@ app.get('/unsubscribe', async (req, reply) => {
 <h1>Unsubscribe</h1>
 <form method="POST">
   <input type="hidden" name="id" value="${String(id).replace(/\D/g, '')}">
-  <input type="hidden" name="email" value="${String(email).replace(/["<>"]/g, '')}">
-  <input type="hidden" name="sig" value="${sig}">
+  <input type="hidden" name="email" value="${escapeHtmlAttribute(email)}">
+  <input type="hidden" name="sig" value="${escapeHtmlAttribute(sig)}">
   <button>Confirm unsubscribe</button>
 </form>`);
 });
