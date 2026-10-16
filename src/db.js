@@ -1,5 +1,12 @@
 import mysql from 'mysql2/promise';
-export const pool=mysql.createPool({host:process.env.DB_HOST||'db',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'mailpilot',password:process.env.DB_PASSWORD,database:process.env.DB_NAME||'mailpilot',waitForConnections:true,connectionLimit:10,dateStrings:true});
+
+export let pool;
+if (process.env.NODE_ENV === 'test') {
+  pool = { query: async () => [[]] }; // mock pool
+} else {
+  pool = mysql.createPool({host:process.env.DB_HOST||'db',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'mailpilot',password:process.env.DB_PASSWORD,database:process.env.DB_NAME||'mailpilot',waitForConnections:true,connectionLimit:10,dateStrings:true});
+}
+
 export async function init(){const statements=[
 `CREATE TABLE IF NOT EXISTS accounts (
   id INT AUTO_INCREMENT PRIMARY KEY,
