@@ -42,7 +42,7 @@ await app.register(rateLimit,{global:false});
 const hash=await bcrypt.hash(ADMIN_PASSWORD,12);
 const adminCredentials=async()=>{
   const [record]=await rows('SELECT password_hash,session_version FROM admin_credentials WHERE id=1');
-  return record||{password_hash:hash,session_version:0};
+  return record && typeof record.password_hash==='string' && Number.isSafeInteger(Number(record.session_version)) ? record : {password_hash:hash,session_version:0};
 };
 const auth=async(req,reply)=>{
   try{
