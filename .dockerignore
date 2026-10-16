@@ -1,0 +1,12 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+coverage
+*.log
+initial-admin-credentials.txt
+README.md
+assets
+install.sh
