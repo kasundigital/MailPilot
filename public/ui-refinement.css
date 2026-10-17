@@ -1,0 +1,125 @@
+/* Professional SaaS design layer.
+   Intentionally scoped to existing MailPilot markup and controls.
+   Loaded after style.css to refine, not replace, application layouts. */
+:root,[data-theme="light"]{
+  --accent:#4055d9;--bg:#f7f8fa;--surface:#fff;--surface2:#f2f4f7;
+  --stroke:#e3e7ec;--fg:#17212f;--subtle:#687386;--sidebar:#fff;
+  --field:#fff;--nav-hover:#eef0ff;--shadow:0 2px 6px rgba(15,23,42,.028);
+  --ui-success:#16734a;--ui-success-bg:#eaf7ef;
+  --ui-warning:#966316;--ui-warning-bg:#fff5df;
+  --ui-danger:#be3944;--ui-danger-bg:#fff0f1;
+  --ui-focus:#7082f1;
+}
+[data-theme="dark"]{
+  --accent:#6177ed;--bg:#10141c;--surface:#191f29;--surface2:#242c39;
+  --stroke:#303946;--fg:#e9edf4;--subtle:#96a2b4;--sidebar:#191f29;
+  --field:#191f29;--nav-hover:#273154;--shadow:0 2px 8px rgba(0,0,0,.12);
+  --ui-success:#6bdda1;--ui-success-bg:#1d3c32;
+  --ui-warning:#f0c576;--ui-warning-bg:#473723;
+  --ui-danger:#ff8392;--ui-danger-bg:#462731;
+  --ui-focus:#9ba7ff;
+}
+body{font-size:13px;line-height:1.48}
+main{min-width:0}
+h1,h2,h3{letter-spacing:-.025em}
+h2{font-weight:720}
+.panel,.stat{border-radius:11px;box-shadow:var(--shadow)}
+.panel{padding:21px}
+header h1{font-size:26px}
+header small,.eyebrow{letter-spacing:1.25px}
+button,.file-label{
+  border-radius:7px;min-height:36px;padding:8px 13px;
+  font-size:12px;font-weight:650;line-height:1.35;
+  transition:background .14s ease,border-color .14s ease,box-shadow .14s ease;
+}
+button{background:var(--accent)}
+button:hover{filter:none;background:#3044c3}
+[data-theme="dark"] button:hover{background:#798cff;color:#10141c}
+button:active:not(:disabled){transform:translateY(1px)}
+button:disabled{opacity:.52;transform:none;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+.file-label:focus-within{outline:3px solid var(--ui-focus)!important;outline-offset:2px}
+.ghost, #logout, #headerThemeToggle{
+  background:var(--surface);border:1px solid var(--stroke);color:var(--fg);
+  box-shadow:0 1px 2px rgba(0,0,0,.025)
+}
+.ghost:hover,#logout:hover,#headerThemeToggle:hover,
+.theme-toggle:hover{background:var(--surface2);color:var(--fg);border-color:var(--subtle)}
+button.danger{background:var(--surface);border:1px solid var(--stroke);color:var(--ui-danger)}
+button.danger:hover{background:var(--ui-danger-bg);color:var(--ui-danger)}
+#headerNewCampaign{background:var(--accent);color:#fff;box-shadow:none;padding:8px 13px}
+#headerNewCampaign:hover{background:#3044c3}
+[data-theme="dark"] #headerNewCampaign:hover{background:#798cff;color:#10141c}
+#headerThemeToggle{font-size:17px;padding:6px 11px}
+nav button{min-height:38px;padding:10px 12px;border-radius:7px}
+nav button:hover,nav button.active{background:var(--nav-hover);color:var(--accent)}
+.theme-toggle{border-radius:7px}
+input:not([type="checkbox"]):not([type="file"]),select,textarea{
+  color:var(--fg);border-color:var(--stroke);border-radius:7px;
+  background:var(--field);font-size:13px;padding:10px 11px;
+}
+input::placeholder,textarea::placeholder{color:var(--subtle);opacity:.85}
+input:not([type="checkbox"]):not([type="file"]),select{min-height:39px}
+label{font-size:12px;font-weight:620}
+.panel-heading{margin-bottom:16px}
+.stat{padding:18px;min-height:105px}
+.stat b{font-size:25px}
+.stat-icon{border-radius:9px}
+.quick-link>span:first-child{width:40px;height:40px;border-radius:8px}
+.quick-link{padding:9px 7px}
+.quick-link:hover{background:var(--nav-hover)}
+.row{padding:13px 2px}
+.row button{padding:7px 11px;min-height:33px}
+.table-wrap{overflow-x:auto;max-width:100%;border:1px solid var(--stroke);border-radius:9px}
+.data-table{width:100%;border-collapse:collapse;font-size:12px}
+.data-table th{font-size:11px;font-weight:680;letter-spacing:.02em;white-space:nowrap;padding:12px 13px;background:var(--surface2);border-bottom:1px solid var(--stroke)}
+.data-table td{padding:12px 13px;vertical-align:middle;border-bottom:1px solid var(--stroke)}
+.data-table tbody tr:last-child td{border-bottom:0}
+.data-table tbody tr:hover{background:var(--surface2)}
+.data-table th.numeric,.data-table td.numeric{text-align:right;font-variant-numeric:tabular-nums}
+.status-tag{border-radius:5px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;padding:4px 8px;font-weight:650;font-size:11px}
+.status-tag::before{content:"";display:inline-block;width:6px;height:6px;flex:none;border-radius:50%;background:currentColor}
+.status-completed,.status-sent{background:var(--ui-success-bg);color:var(--ui-success)}
+.status-running,.status-sending{background:var(--nav-hover);color:var(--accent)}
+.status-scheduled,.status-paused{background:var(--ui-warning-bg);color:var(--ui-warning)}
+.status-failed,.status-error{background:var(--ui-danger-bg);color:var(--ui-danger)}
+.status-draft{background:var(--surface2);color:var(--subtle)}
+.campaign-toolbar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:18px 0 12px}
+.campaign-toolbar .campaign-search,.campaign-toolbar .campaign-filter{margin:0}
+.campaign-toolbar .campaign-search{flex:1;min-width:190px}
+.campaign-toolbar .campaign-filter{width:165px}
+.campaign-toolbar label span{display:block;font-size:11px;color:var(--subtle);margin-bottom:4px}
+.campaign-toolbar input,.campaign-toolbar select{width:100%;margin-top:0}
+.campaign-name strong,.campaign-name small{display:block}
+.campaign-name strong{font-size:12px}
+.campaign-name small{font-size:11px;color:var(--subtle);margin-top:4px}
+.campaign-table{min-width:760px}
+.campaign-table .campaign-actions{min-width:245px}
+.campaign-actions{display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}
+.campaign-actions button{font-size:11px;min-height:29px;padding:5px 8px}
+.campaign-actions button.ghost{background:transparent;box-shadow:none}
+.campaign-actions button.ghost:hover{background:var(--surface2)}
+.campaign-pagination{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px;color:var(--subtle);font-size:11px}
+.campaign-pagination-buttons{display:flex;gap:7px;align-items:center}
+.campaign-pagination-buttons button{min-height:31px}
+.campaign-pagination-buttons button:disabled{opacity:.35}
+.campaign-count{font-variant-numeric:tabular-nums}
+.campaign-table-empty{padding:28px 12px;text-align:center;color:var(--subtle)}
+#campaignList{min-width:0}
+#campaigns .panel>.row{padding:0 0 7px;border:0}
+#campaigns .panel>.row h2{margin:0}
+#campaigns .panel>.muted{margin:6px 0 12px;font-size:12px}
+[data-theme="dark"] .stat-icon{background:var(--surface2);color:var(--accent)}
+[data-theme="dark"] .stat:nth-child(2) .stat-icon,
+[data-theme="dark"] .stat:nth-child(3) .stat-icon{background:var(--surface2)}
+@media(max-width:900px){main{padding:20px}.panel{padding:18px}}
+@media(max-width:650px){
+ main{padding:15px}
+ .panel{padding:16px}
+ .campaign-toolbar .campaign-search,.campaign-toolbar .campaign-filter{flex:1 1 100%;width:100%}
+ .campaign-pagination{align-items:flex-start}
+ button,.file-label{min-height:39px}
+ nav button{padding:9px 7px}
+ .campaign-actions button{min-height:33px}
+}
+@media(prefers-reduced-motion:reduce){button,.file-label{transition:none}button:active:not(:disabled){transform:none}}
