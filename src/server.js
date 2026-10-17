@@ -10,10 +10,12 @@ import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
 import sanitizeHtml from 'sanitize-html';
 import path from 'node:path';
+import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
 import {checkSenderDns} from './dns-diagnostics.js';
 import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
+const APP_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
 
 if (!ADMIN_EMAIL) {
@@ -70,7 +72,8 @@ const audit = async (req, action, details='') => {
       [ADMIN_EMAIL, action, String(details).slice(0,255), String(req.ip||'unknown').slice(0,45)]);
   } catch (err) { req.log.warn({err}, 'Audit logging failed'); }
 };
-app.get('/health',async()=>({ok:true}));
+app.get('/health',async()=>({ok:true,version:APP_VERSION}));
+app.get('/api/version',async()=>({version:APP_VERSION}));
 app.post('/api/login', {
   config: {
     rateLimit: { max: 5, timeWindow: '1 minute' }
@@ -92,7 +95,7 @@ app.post('/api/login', {
   await audit(req, 'login_success');
   return { ok: true };
 });
-app.post('/api/logout',{preHandler:csrfAuth},async(req,reply)=>{await audit(req,'logout');reply.clearCookie('mailpilot_session',{path:'/'});return {ok:true}});
+app.post('/api/logout',{preHandler:csrfAuth},async(req,reply)=>{reply.clearCookie('mailpilot_session',{path:'/',secure:true,sameSite:'strict',httpOnly:true});await audit(req,'logout');return {ok:true}});
 app.get('/api/me',{preHandler:auth},async(req,reply)=>({email:ADMIN_EMAIL,csrfToken:await reply.generateCsrf()}));
 app.post('/api/me/password',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'15 minutes'}}},async(req,reply)=>{
   const {currentPassword,newPassword}=req.body||{};
