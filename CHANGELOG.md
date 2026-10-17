@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5 — Test SMTP before saving
+
+- Add an authenticated, CSRF-protected and rate-limited SMTP connection test for unsaved settings.
+- Verify server connectivity, TLS and authentication without persisting credentials or sending email.
+- Display concise success, pending and sanitized diagnostic errors beside the form controls.
+- Preserve saved-account Test SMTP and SMTP account creation functionality.
+- Add API regression tests and documentation for test limitations.
+
 ## 0.2.4 — Contact search, pagination and bulk management (#37)
 
 - Add paginated, searchable and sortable contact listing with subscribed/unsubscribed and tag filters.

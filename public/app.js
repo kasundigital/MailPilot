@@ -198,7 +198,66 @@ $('#changePasswordForm').addEventListener('submit',async e=>{
 });
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
-$('#smtpForm').addEventListener('submit',async e=>{e.preventDefault();const x=values(e.target);x.secure=e.target.elements.secure.checked;try{await api('/api/accounts',{method:'POST',body:JSON.stringify(x)});e.target.reset();await listAccounts();alertText('SMTP account saved. Test connection before sending.')}catch(err){alertText(err.message,true)}});
+const smtpForm=$('#smtpForm'),smtpTestButton=$('#smtpTestConnection'),smtpSaveButton=$('#smtpSaveAccount');
+const smtpFeedback=$('#smtpTestFeedback');
+let smtpTestSerial=0,smtpTestRunning=false;
+function showSmtpTestFeedback(message,state='') {
+ smtpFeedback.hidden=!message;
+ smtpFeedback.className='smtp-test-feedback'+(state?' smtp-test-'+state:'');
+ smtpFeedback.textContent=message;
+}
+smtpForm.addEventListener('input',e=>{
+ if(['host','port','username','password','secure'].includes(e.target.name)){
+  smtpTestSerial++;
+  showSmtpTestFeedback('');
+ }
+});
+smtpForm.addEventListener('change',e=>{
+ if(e.target.name==='secure'){smtpTestSerial++;showSmtpTestFeedback('');}
+});
+smtpTestButton.addEventListener('click',async()=>{
+ if(smtpTestRunning)return;
+ const fields=['host','port','username','password'];
+ for(const name of fields){
+  const field=smtpForm.elements[name];
+  if(!field.reportValidity())return;
+ }
+ const x=values(smtpForm);
+ const serial=++smtpTestSerial;
+ smtpTestRunning=true;
+ smtpTestButton.disabled=true;
+ smtpSaveButton.disabled=true;
+ smtpTestButton.textContent='Testing connection…';
+ showSmtpTestFeedback('Connecting securely to the SMTP server…','pending');
+ try{
+  const result=await api('/api/accounts/test-connection',{method:'POST',
+    body:JSON.stringify({host:x.host,port:x.port,username:x.username,password:x.password,
+      secure:smtpForm.elements.secure.checked})});
+  if(serial===smtpTestSerial)
+   showSmtpTestFeedback(result.message||'SMTP connection and authentication succeeded. No email was sent.','success');
+ }catch(error){
+  if(serial===smtpTestSerial)showSmtpTestFeedback(error.message,'error');
+ }finally{
+  smtpTestRunning=false;
+  smtpTestButton.disabled=false;
+  smtpSaveButton.disabled=false;
+  smtpTestButton.textContent='Test connection';
+ }
+});
+smtpForm.addEventListener('submit',async e=>{
+ e.preventDefault();
+ if(smtpTestRunning)return;
+ const x=values(e.target);
+ x.secure=e.target.elements.secure.checked;
+ try{
+  await api('/api/accounts',{method:'POST',body:JSON.stringify(x)});
+  e.target.reset();
+  smtpTestSerial++;
+  showSmtpTestFeedback('');
+  await listAccounts();
+  alertText('SMTP account saved. Use Test SMTP in the configured accounts table to recheck later.');
+ }catch(err){alertText(err.message,true)}
+});
 $('#contactSearch').addEventListener('input',()=>{
  clearTimeout(contactSearchDelay);
  contactSearchDelay=setTimeout(contactFilterChanged,250);
