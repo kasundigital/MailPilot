@@ -43,3 +43,8 @@ Use these instructions for all UI/UX work by ChatGPT, Codex, Jules, Claude, and 
 - Review work critically before merging; follow Anthropic's frontend-design principles of brief-specific visual direction and removal of unnecessary decoration.
 - A successful CSS/JS check does not replace screenshot QA. Verify 390/768/1280/1440px in both light and dark themes when browser tooling is available.
 - For Docker upgrades, keep the existing database volume and persistent .env/cryptographic keys. The image deploy path must not create a new blank database volume when old data exists.
+
+## Deployment discipline
+- Use GitHub Actions to publish reviewed images to GHCR. PR builds do not publish; main/tag builds publish only on passing jobs.
+- Pin immutable images for critical deployments where appropriate; never rotate existing secrets or replace a database volume on routine update.
+- Keep install and update commands in docs and CLI tested by bash -n and shellcheck; do not claim an image was published until the workflow has completed.

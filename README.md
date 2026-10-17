@@ -19,30 +19,25 @@ MailPilot is a Docker-first bulk email application for VPS hosting. It supports 
 - Per-recipient signed unsubscribe links, List-Unsubscribe headers and public unsubscribe endpoint
 - Responsive dark admin dashboard, SVG branding, Docker Compose and MariaDB persistence
 
-## One-command installation (Ubuntu / Debian)
+## One-command install / update (Ubuntu / Debian)
 
-On a fresh VPS, run:
+MailPilot is distributed using a prebuilt GitHub Container Registry (GHCR) image.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/kasundigital/MailPilot/main/install.sh -o /tmp/mailpilot-install.sh
-sudo bash /tmp/mailpilot-install.sh
-```
+~~~bash
+# Fresh installation
+curl -fsSL https://raw.githubusercontent.com/kasundigital/MailPilot/main/install.sh | sudo bash -s -- install
 
-The installer checks Docker and Compose, clones to `/opt/mailpilot`, generates unique secrets, starts containers, and checks localhost health. It asks for your admin email and public **HTTPS** URL. It saves the generated initial password in `/opt/mailpilot/initial-admin-credentials.txt` (root-only): move it into a secure password manager and delete that file. Re-running preserves existing `.env` and database volumes; it is not an automatic Git updater.
+# Subsequent updates — preserves .env and MariaDB data
+curl -fsSL https://raw.githubusercontent.com/kasundigital/MailPilot/main/install.sh | sudo bash -s -- update
+~~~
 
-**Important:** MailPilot is bound to `127.0.0.1:3088`. Set up your own HTTPS Caddy/Nginx proxy from the hostname you entered to `http://127.0.0.1:3088` before visiting the site. Without HTTPS, login cookies will not work. Installer does **not** modify firewall rules, create DNS records, or issue certificates.
+The installer prompts for your administrator email and HTTPS public URL on first install, generates cryptographic secrets and root-only initial credentials, selects the existing database volume, pulls the published image, verifies the image version, and checks localhost health. It never silently creates a new database during updates. The GHCR workflow must complete before running update. **Back up MariaDB first.**
 
-After installation:
-
-```bash
-cd /opt/mailpilot
-sudo docker compose ps
-sudo docker compose logs --tail=100
-```
+MailPilot binds to 127.0.0.1:3088. Configure a separate HTTPS Caddy/Nginx reverse proxy to that address. Review [Docker deployment and recovery details](docs/DOCKER.md).
 
 ## Docker image and Docker Run
 
-MailPilot includes a `Dockerfile` for local builds and a GitHub Actions workflow that publishes `ghcr.io/kasundigital/mailpilot:latest` after a successful build on `main` (the image is not guaranteed to exist until publishing succeeds).
+MailPilot includes a `Dockerfile` and GitHub Actions that publishes `ghcr.io/kasundigital/mailpilot:latest` and versioned multi-architecture images after a successful build on `main`.
 
 **Pre-built image with Compose:** configure secure `.env`, then run `docker compose -f compose.image.yml up -d`.
 
