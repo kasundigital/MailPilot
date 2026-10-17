@@ -23,7 +23,42 @@ async function listAccounts(){
  '</tbody></table></div>':
  '<div class="empty-state account-empty"><strong>No SMTP accounts yet</strong><span>Add an account above to configure your first sender.</span></div>';
 }
-async function listContacts(){const d=await api('/api/contacts');$('#contactList').innerHTML=d.map(x=>'<div class="row"><div>'+escapeHTML(x.email)+'</div><span>'+(x.subscribed?'Subscribed':'Unsubscribed')+'</span></div>').join('')||'No contacts yet.'}
+// Contacts view: server-side search, pagination and bounded page selections.
+let contactPage=1,contactTotalPages=1,contactSelected=new Set(),contactSearchDelay;
+function contactSelectionStatus(){
+ const count=contactSelected.size;
+ $('#contactSelectedCount').textContent=count+' selected';
+ for(const id of ['contactBulkTag','contactBulkSuppress','contactBulkExport']) $('#'+id).disabled=count===0;
+ const all=[...document.querySelectorAll('#contactList [data-contact-id]')];
+ const selectAll=$('#contactSelectAll');
+ if(selectAll){selectAll.checked=all.length>0&&all.every(c=>c.checked);selectAll.indeterminate=all.some(c=>c.checked)&&!selectAll.checked;}
+}
+async function listContacts(){
+ const url=new URLSearchParams({
+  page:String(contactPage),pageSize:'25',search:$('#contactSearch').value.trim(),
+  status:$('#contactStatus').value,sort:$('#contactSort').value,tag:$('#contactTagFilter').value.trim()
+ });
+ $('#contactList').setAttribute('aria-busy','true');
+ try{
+  const response=await api('/api/contacts/page?'+url);
+  contactTotalPages=response.pages;
+  if(contactPage>response.pages){contactPage=response.pages;return await listContacts();}
+  contactSelected.clear();
+  const items=response.items;
+  $('#contactList').innerHTML=items.length?
+    '<div class="table-wrap"><table class="data-table contact-table"><thead><tr><th scope="col"><input id="contactSelectAll" type="checkbox" aria-label="Select all contacts on this page"></th><th scope="col">Email</th><th scope="col">Status</th><th scope="col">Tags</th><th scope="col">Consent source</th><th scope="col">Added</th></tr></thead><tbody>'+
+    items.map(x=>'<tr><td><input type="checkbox" data-contact-id="'+escapeHTML(x.id)+'" aria-label="Select '+escapeHTML(x.email)+'"></td><td><strong>'+escapeHTML(x.email)+'</strong></td><td><span class="status-tag '+(x.subscribed?'status-sent':'status-draft')+'">'+(x.subscribed?'Subscribed':'Unsubscribed')+'</span></td><td>'+escapeHTML(x.tags||'—')+'</td><td>'+escapeHTML(x.consent_source||'—')+'</td><td>'+escapeHTML(x.created_at?String(x.created_at).slice(0,10):'—')+'</td></tr>').join('')+
+    '</tbody></table></div>':
+    '<div class="empty-state">No matching contacts found.</div>';
+  $('#contactCount').textContent=response.total.toLocaleString()+' contacts';
+  $('#contactPageLabel').textContent='Page '+response.page+' of '+response.pages;
+  $('#contactPrev').disabled=contactPage<=1;
+  $('#contactNext').disabled=contactPage>=response.pages;
+  contactSelectionStatus();
+ } finally {$('#contactList').removeAttribute('aria-busy');}
+}
+function contactFilterChanged(){contactPage=1;listContacts().catch(e=>alertText(e.message,true));}
+
 // Campaigns view: filter and paginate REAL API rows; keep existing data-* actions.
 let campaignRows=[], campaignQuery='', campaignStatus='all', campaignPage=0;
 const CAMPAIGN_PAGE_SIZE=10;
@@ -164,6 +199,62 @@ $('#changePasswordForm').addEventListener('submit',async e=>{
 
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.page));
 $('#smtpForm').addEventListener('submit',async e=>{e.preventDefault();const x=values(e.target);x.secure=e.target.elements.secure.checked;try{await api('/api/accounts',{method:'POST',body:JSON.stringify(x)});e.target.reset();await listAccounts();alertText('SMTP account saved. Test connection before sending.')}catch(err){alertText(err.message,true)}});
+$('#contactSearch').addEventListener('input',()=>{
+ clearTimeout(contactSearchDelay);
+ contactSearchDelay=setTimeout(contactFilterChanged,250);
+});
+$('#contactTagFilter').addEventListener('input',()=>{
+ clearTimeout(contactSearchDelay);
+ contactSearchDelay=setTimeout(contactFilterChanged,250);
+});
+$('#contactStatus').addEventListener('change',contactFilterChanged);
+$('#contactSort').addEventListener('change',contactFilterChanged);
+$('#contactPrev').addEventListener('click',()=>{if(contactPage>1){contactPage--;listContacts().catch(e=>alertText(e.message,true));}});
+$('#contactNext').addEventListener('click',()=>{if(contactPage<contactTotalPages){contactPage++;listContacts().catch(e=>alertText(e.message,true));}});
+$('#contactList').addEventListener('change',event=>{
+ const checkbox=event.target;
+ if(checkbox.id==='contactSelectAll'){
+  document.querySelectorAll('#contactList [data-contact-id]').forEach(input=>{
+   input.checked=checkbox.checked;
+   const id=Number(input.dataset.contactId);
+   if(checkbox.checked)contactSelected.add(id);else contactSelected.delete(id);
+  });
+ }else if(checkbox.dataset.contactId){
+  const id=Number(checkbox.dataset.contactId);
+  if(checkbox.checked)contactSelected.add(id);else contactSelected.delete(id);
+ }
+ contactSelectionStatus();
+});
+async function contactBulkAction(action,tag){
+ const ids=[...contactSelected];
+ if(!ids.length)return;
+ const d=await api('/api/contacts/bulk',{method:'POST',body:JSON.stringify({ids,action,...(tag?{tag}:{})})});
+ alertText(action==='tag'?'Tag added to '+d.changed+' contact(s).':'Suppressed '+d.changed+' contact(s).');
+ await listContacts();
+}
+$('#contactBulkTag').addEventListener('click',async()=>{
+ const tag=prompt('Tag for selected contacts (letters, digits, underscores, hyphens):');
+ if(tag===null)return;
+ if(!/^[a-z0-9][a-z0-9_-]{0,31}$/i.test(tag.trim())){alertText('Use 1–32 letters, digits, underscores or hyphens.',true);return;}
+ try{await contactBulkAction('tag',tag.trim());}catch(error){alertText(error.message,true);}
+});
+$('#contactBulkSuppress').addEventListener('click',async()=>{
+ if(!contactSelected.size)return;
+ if(!confirm('Suppress '+contactSelected.size+' selected contact(s)? They will not receive future campaigns. This cannot be undone here.'))return;
+ try{await contactBulkAction('suppress');}catch(error){alertText(error.message,true);}
+});
+$('#contactBulkExport').addEventListener('click',async()=>{
+ if(!contactSelected.size)return;
+ try{
+  const response=await fetch('/api/contacts/export.csv?ids='+encodeURIComponent([...contactSelected].join(',')),{credentials:'same-origin'});
+  if(!response.ok)throw Error('Selected contact export failed');
+  const blob=await response.blob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download='mailpilot-selected-contacts.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  alertText('Selected contacts exported.');
+ }catch(error){alertText(error.message,true);}
+});
+
 $('#contactForm').addEventListener('submit',async e=>{e.preventDefault();const x=values(e.target);x.confirmConsent=e.target.elements.confirmConsent.checked;try{const d=await api('/api/contacts/import',{method:'POST',body:JSON.stringify(x)});alertText('Imported '+d.added+' new contacts; '+d.duplicates+' duplicates.');await listContacts()}catch(err){alertText(err.message,true)}});
 $('#newCampaign').addEventListener('click',()=>{ $('#campaignForm').reset(); showWizardStep(1); $('#recipientEmailsLabel').hidden=true; updateCampaignReview(); show('editor'); });
 

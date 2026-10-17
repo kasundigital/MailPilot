@@ -15,6 +15,7 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
 import {checkSenderDns} from './dns-diagnostics.js';
+import {contactIds,contactTag,contactPageOptions} from './contact-management.js';
 import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
 const APP_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
@@ -169,7 +170,16 @@ const csvCell = value => {
   return '"' + safe.replace(/"/g, '""') + '"';
 };
 app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
-  const contacts=await rows('SELECT email,subscribed,consent_source,created_at,unsubscribed_at FROM contacts ORDER BY id');
+  let selection=null;
+  if (req.query?.ids!==undefined) {
+    try { selection=contactIds(req.query.ids); }
+    catch (error) { return reply.code(400).send({error:error.message}); }
+  }
+  const contacts=await rows(
+    'SELECT email,subscribed,consent_source,created_at,unsubscribed_at FROM contacts'+(selection?' WHERE id IN (?)':'')+' ORDER BY id',
+    selection?[selection]:[]
+  );
+  if (selection) await audit(req,'contacts_selected_exported',String(selection.length)+' selected contact IDs');
   const header=['email','subscribed','consent_source','created_at','unsubscribed_at'];
   const lines=[header.join(','),...contacts.map(c=>header.map(k=>csvCell(c[k])).join(','))];
   reply.header('Content-Type','text/csv; charset=utf-8');
@@ -178,6 +188,63 @@ app.get('/api/contacts/export.csv',{preHandler:auth},async(req,reply)=>{
   return '\uFEFF'+lines.join('\r\n')+'\r\n';
 });
 app.get('/api/contacts',{preHandler:auth},async()=>rows('SELECT id,email,subscribed,consent_source,created_at FROM contacts ORDER BY id DESC LIMIT 500'));
+app.get('/api/contacts/page',{preHandler:auth},async(req,reply)=>{
+  let q;
+  try { q=contactPageOptions(req.query); }
+  catch(error) { return reply.code(400).send({error:error.message}); }
+  const [counter]=await rows('SELECT COUNT(*) total FROM contacts c'+q.where,q.params);
+  const total=Number(counter?.total||0);
+  const items=await rows(
+    "SELECT c.id,c.email,c.subscribed,c.consent_source,c.created_at,c.unsubscribed_at, "+
+    "(SELECT GROUP_CONCAT(ct.tag ORDER BY ct.tag SEPARATOR ', ') FROM contact_tags ct WHERE ct.contact_id=c.id) tags "+
+    'FROM contacts c'+q.where+' ORDER BY '+q.orderBy+' LIMIT ? OFFSET ?',
+    [...q.params,q.pageSize,q.offset]
+  );
+  reply.header('Cache-Control','no-store');
+  return {items,total,page:q.page,pageSize:q.pageSize,pages:Math.max(1,Math.ceil(total/q.pageSize))};
+});
+app.post('/api/contacts/bulk',{preHandler:csrfAuth,config:{rateLimit:{max:12,timeWindow:'1 minute'}}},async(req,reply)=>{
+  const {action}=req.body||{};
+  let ids,tag;
+  try {
+    ids=contactIds(req.body?.ids);
+    if (!['suppress','tag'].includes(action)) throw new Error('Invalid contact action');
+    if (action==='tag') tag=contactTag(req.body?.tag);
+  } catch(error) { return reply.code(400).send({error:error.message}); }
+  const connection=await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [existing]=await connection.query('SELECT id FROM contacts WHERE id IN (?) FOR UPDATE',[ids]);
+    if (existing.length!==ids.length) {
+      await connection.rollback();
+      return reply.code(404).send({error:'Some selected contacts no longer exist. Refresh the page.'});
+    }
+    let affected=0;
+    if (action==='suppress') {
+      const [updated]=await connection.query(
+        'UPDATE contacts SET subscribed=0,unsubscribed_at=COALESCE(unsubscribed_at,NOW()) WHERE id IN (?) AND subscribed=1',[ids]
+      );
+      affected=updated.affectedRows;
+      await connection.query("UPDATE messages SET status='suppressed' WHERE contact_id IN (?) AND status='queued'",[ids]);
+    } else {
+      const inserts=ids.map(()=>'(?,?)').join(',');
+      const params=ids.flatMap(id=>[id,tag]);
+      const [updated]=await connection.query('INSERT IGNORE INTO contact_tags(contact_id,tag) VALUES '+inserts,params);
+      affected=updated.affectedRows;
+    }
+    await connection.query('INSERT INTO audit_logs(admin_email,action,details,ip_address) VALUES (?,?,?,?)',[
+      ADMIN_EMAIL,action==='tag'?'contacts_bulk_tagged':'contacts_bulk_suppressed',
+      'Selected: '+ids.length+'; changed: '+affected+(tag?'; tag: '+tag:''),
+      String(req.ip||'unknown').slice(0,45)
+    ]);
+    await connection.commit();
+    return {ok:true,selected:ids.length,changed:affected};
+  } catch(error) {
+    await connection.rollback();
+    throw error;
+  } finally {connection.release();}
+});
+
 app.post('/api/contacts/import',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req,reply)=>{const {emails,consentSource,confirmConsent}=req.body||{};if(confirmConsent!==true||typeof consentSource!=='string'||consentSource.trim().length<3)return reply.code(400).send({error:'Confirm recipient permission and provide consent source'});const parsed=parseEmails(emails);if(!parsed.length||parsed.length>10000)return reply.code(400).send({error:'Provide 1–10000 valid email addresses'});let added=0;for(const email of parsed){const r=await rows('INSERT IGNORE INTO contacts(email,consent_source) VALUES (?,?)',[email,consentSource.trim().slice(0,255)]);added+=r.affectedRows}await audit(req,'contacts_imported',`Added ${added} contacts`);return {received:parsed.length,added,duplicates:parsed.length-added}});
 app.get('/api/campaigns',{preHandler:auth},async()=>rows("SELECT c.id,c.name,c.subject,c.status,c.created_at,a.label account_name,(SELECT COUNT(*) FROM campaign_audience ca WHERE ca.campaign_id=c.id) audience_total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id) total,(SELECT COUNT(*) FROM messages m WHERE m.campaign_id=c.id AND m.status='sent') sent FROM campaigns c JOIN accounts a ON a.id=c.account_id ORDER BY c.id DESC LIMIT 100"));
 const safeStyleRegex=/^(?!.*(?:expression|-moz-binding|url\s*\()).*$/i;const safeStyle=[safeStyleRegex];const allowedStylesObj={'color':safeStyle,'background':safeStyle,'background-color':safeStyle,'font-family':safeStyle,'font-size':safeStyle,'font-weight':safeStyle,'font-style':safeStyle,'text-align':safeStyle,'text-decoration':safeStyle,'line-height':safeStyle,'margin':safeStyle,'margin-top':safeStyle,'margin-right':safeStyle,'margin-bottom':safeStyle,'margin-left':safeStyle,'padding':safeStyle,'padding-top':safeStyle,'padding-right':safeStyle,'padding-bottom':safeStyle,'padding-left':safeStyle,'border':safeStyle,'border-top':safeStyle,'border-right':safeStyle,'border-bottom':safeStyle,'border-left':safeStyle,'border-radius':safeStyle,'width':safeStyle,'max-width':safeStyle,'height':safeStyle,'max-height':safeStyle,'display':safeStyle,'vertical-align':safeStyle,'list-style':safeStyle,'list-style-type':safeStyle,'border-collapse':safeStyle,'border-spacing':safeStyle,'color-scheme':safeStyle};

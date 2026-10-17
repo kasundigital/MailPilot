@@ -101,3 +101,7 @@ npm test
 ## License
 
 MIT. See LICENSE.
+
+## Contact management
+
+The Contacts screen offers server-side email search, status/tag filters, sorting and 25-contact pages. You can select up to 100 contacts per API request (the UI selects only the visible page), export selected addresses to CSV, add tags or suppress contacts. Suppression sets subscribed=false and removes queued messages for those contacts; it cannot be reversed from this interface, and it never re-subscribes people. Consent is still required when importing. All mutations require administrator authentication, CSRF protection and write an audit entry. The new contact_tags table is created automatically during normal startup without altering historical contact records.

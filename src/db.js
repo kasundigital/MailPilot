@@ -66,6 +66,13 @@ export async function init(){const statements=[
   FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
   FOREIGN KEY(contact_id) REFERENCES contacts(id)
 )`,
+`CREATE TABLE IF NOT EXISTS contact_tags (
+  contact_id BIGINT NOT NULL,
+  tag VARCHAR(32) NOT NULL,
+  PRIMARY KEY(contact_id,tag),
+  INDEX tag_lookup(tag,contact_id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id)
+)`,
 `CREATE TABLE IF NOT EXISTS admin_credentials (
   id TINYINT PRIMARY KEY,
   password_hash VARCHAR(255) NOT NULL,

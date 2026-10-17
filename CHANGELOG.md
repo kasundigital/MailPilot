@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.4 — Contact search, pagination and bulk management (#37)
+
+- Add paginated, searchable and sortable contact listing with subscribed/unsubscribed and tag filters.
+- Add compact contacts table, page selection, selected-contact CSV export, bulk tags and irreversible suppression confirmation.
+- Add an indexed contact_tags table without modifying existing contacts or campaigns.
+- Apply per-request validation and rate limits, CSRF for mutations, transactional changes and audit logging.
+- Preserve legacy GET /api/contacts and full CSV export endpoints.
+
+
 ## 0.2.3 — Compact SaaS UI and image-based install/update
 
 - Reorganize SMTP setup into compact grouped connection, identity, and delivery-limit fields.
