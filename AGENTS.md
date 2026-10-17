@@ -54,3 +54,11 @@ Use these instructions for all UI/UX work by ChatGPT, Codex, Jules, Claude, and 
 - Use GitHub Actions to publish reviewed images to GHCR. PR builds do not publish; main/tag builds publish only on passing jobs.
 - Pin immutable images for critical deployments where appropriate; never rotate existing secrets or replace a database volume on routine update.
 - Keep install and update commands in docs and CLI tested by bash -n and shellcheck; do not claim an image was published until the workflow has completed.
+
+## Matt Pocock engineering skills
+
+Stable source skills: `.agents/skills/<skill-name>/SKILL.md`. Origin, license and agent compatibility: `docs/agents/skills.md`.
+
+- GitHub Issues is the issue tracker (`docs/agents/issue-tracker.md`); labels in `docs/agents/triage-labels.md`.
+- Prefer `diagnosing-bugs` + `tdd` for fixes, `code-review` + `pr` before merges, and `triage` + `to-tickets` for planning; one issue per PR.
+- Existing MailPilot instructions above override vendor advice. Preserve UI, data, security, release/version, footer and production safety. Never merge unverified code or force-push.
