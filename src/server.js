@@ -191,7 +191,10 @@ app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{
     const contacts=await rows('SELECT id FROM contacts WHERE subscribed=1');
     recipientIds=contacts.map(c=>c.id);
   }else{
-    const emails=[...new Set(parseEmails(String(x.recipientEmails||'')))];
+    const tokens=String(x.recipientEmails||'').split(/[\s,;]+/).filter(Boolean);
+    if(tokens.some(token=>!normalizeEmail(token)))
+      return reply.code(400).send({error:'Invalid recipient address. Correct all addresses before saving.'});
+    const emails=[...new Set(tokens.map(normalizeEmail))];
     if(!emails.length||emails.length>500)
       return reply.code(400).send({error:'Select 1–500 existing opted-in contact addresses'});
     const contacts=await rows('SELECT id,email FROM contacts WHERE subscribed=1 AND email IN (?)',[emails]);
@@ -222,16 +225,23 @@ app.post('/api/campaigns/:id/start',{preHandler:csrfAuth},async(req,reply)=>{
     return reply.code(400).send({error:'Campaign cannot be started'});
   if(c.status==='draft'){
     const [audience]=await rows('SELECT COUNT(*) AS total FROM campaign_audience WHERE campaign_id=?',[c.id]);
-    if(!Number(audience?.total))return reply.code(400).send({error:'No saved audience. Recreate this campaign with explicit recipients.'});
+    if(!Number(audience?.total)){
+      if(req.body?.legacyAudience!=='all')
+        return reply.code(409).send({error:'Legacy draft has no audience. Explicitly select all subscribed contacts to continue.'});
+      await rows('INSERT IGNORE INTO campaign_audience(campaign_id,contact_id) SELECT ?,id FROM contacts WHERE subscribed=1',[c.id]);
+    }
     await rows("INSERT IGNORE INTO messages(campaign_id,contact_id) SELECT ?,ca.contact_id FROM campaign_audience ca JOIN contacts c ON c.id=ca.contact_id WHERE ca.campaign_id=? AND c.subscribed=1",[c.id,c.id]);
   }
+  const [pending]=await rows("SELECT COUNT(*) AS total FROM messages WHERE campaign_id=? AND status IN ('queued','sending')",[c.id]);
+  if(!Number(pending?.total))
+    return reply.code(400).send({error:'No eligible recipients remain. Campaign was not started.'});
   await rows("UPDATE campaigns SET status='running' WHERE id=?",[c.id]);
   await audit(req,'campaign_started',`Campaign ID ${c.id}`);
   return {ok:true};
 });
 
-app.post('/api/campaigns/test-send', { preHandler: csrfAuth }, async (req, reply) => {
-  const { accountId, subject, html, plain, testEmail } = req.body || {};
+app.post('/api/campaigns/test-send', { preHandler: csrfAuth, config:{rateLimit:{max:3,timeWindow:'1 hour'}} }, async (req, reply) => {
+  const { accountId, subject, html, plain, testEmail, preheader } = req.body || {};
   if (!accountId || !subject || !html || !testEmail) return reply.code(400).send({ error: 'Missing required fields for test send' });
   const [account] = await rows('SELECT * FROM accounts WHERE id=? AND enabled=1', [accountId]);
   if (!account) return reply.code(400).send({ error: 'Active account required' });
@@ -239,8 +249,11 @@ app.post('/api/campaigns/test-send', { preHandler: csrfAuth }, async (req, reply
   try {
     const transporter = nodemailer.createTransport({
       host: account.host, port: account.port, secure: !!account.secure,
+      requireTLS: !account.secure,
+      connectionTimeout: 10000,
+      socketTimeout: 15000,
       auth: { user: account.username, pass: decrypt(account.password_cipher, ENCRYPTION_KEY) },
-      pool: false, direct: true
+      pool: false
     });
     const parsedTestEmail = parseEmails(testEmail)[0];
     if(!parsedTestEmail) return reply.code(400).send({ error: 'Invalid test email address' });
@@ -249,7 +262,7 @@ app.post('/api/campaigns/test-send', { preHandler: csrfAuth }, async (req, reply
       from: `"${account.from_name}" <${account.from_email}>`,
       to: parsedTestEmail,
       subject: subject,
-      html: sanitizeHtml(String(html), { allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']), allowVulnerableTags: true, allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, a: ['href','target','rel'], img: ['src','alt','width','height'], '*': ['style'] }, allowedStyles: { '*': allowedStylesObj }, allowedSchemes: ['https','http','mailto'] }),
+      html: (preheader ? '<div style="display:none;max-height:0;overflow:hidden;opacity:0">'+escapeHtml(String(preheader).slice(0,255))+'</div>' : '') + sanitizeHtml(String(html), { allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img','h1','h2','style']), allowVulnerableTags: true, allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, a: ['href','target','rel'], img: ['src','alt','width','height'], '*': ['style'] }, allowedStyles: { '*': allowedStylesObj }, allowedSchemes: ['https','http','mailto'] }),
       text: plain || String(html).replace(/<[^>]+>/g, ' ')
     });
     return { ok: true };
@@ -312,7 +325,7 @@ await app.register(fastifyStatic,{root:path.join(path.dirname(fileURLToPath(impo
 let busy = false;
 
 async function getCandidate() {
-  const candidates = await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
+  const candidates = await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.preheader,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
   return candidates[0];
 }
 
@@ -359,7 +372,7 @@ async function sendCandidateMessage(j) {
       from: { name: j.from_name, address: j.from_email },
       to: j.email,
       subject: j.subject,
-      html: j.html + '<p style="font-size:12px">Unsubscribe: <a href="' + unsubscribe + '">click here</a></p>',
+      html: (j.preheader ? '<div style="display:none;max-height:0;overflow:hidden;opacity:0">'+escapeHtml(String(j.preheader))+'</div>' : '') + j.html + '<p style="font-size:12px">Unsubscribe: <a href="' + unsubscribe + '">click here</a></p>',
       text: j.plain + '\n\nUnsubscribe: ' + unsubscribe,
       headers: { 'List-Unsubscribe': '<' + unsubscribe + '>' },
       list: { unsubscribe: { url: unsubscribe } }
