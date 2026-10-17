@@ -19,6 +19,14 @@ MailPilot is a Docker-first bulk email application for VPS hosting. It supports 
 - Per-recipient signed unsubscribe links, List-Unsubscribe headers and public unsubscribe endpoint
 - Responsive dark admin dashboard, SVG branding, Docker Compose and MariaDB persistence
 
+## Backups and Restores
+
+MailPilot includes an integrated, encrypted backup and restore system:
+1. Navigate to the **Account Settings & Backups** section in the UI.
+2. Click **Create Backup** to securely dump your entire database (contacts, campaigns, settings) to an AES-256-GCM encrypted `.enc` file using your `ENCRYPTION_KEY`.
+3. To restore, select an existing backup file and choose to perform a **Dry run** (which simulates the restore and logs the potential changes without modifying the database) or a full restore.
+4. Backups are stored in the `backups/` directory inside your application volume.
+
 ## One-command install / update (Ubuntu / Debian)
 
 MailPilot is distributed using a prebuilt GitHub Container Registry (GHCR) image.

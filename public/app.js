@@ -4,7 +4,61 @@ const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 async function api(path,options={}){const headers={...(options.body!==undefined&&options.body!==null?{'Content-Type':'application/json'}:{}),...(csrfToken?{'csrf-token':csrfToken}:{}),...(options.headers||{})};const res=await fetch(path,{credentials:'same-origin',...options,headers});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||'Request failed');return data}
 function alertText(t,error=false){const el=$('#notice');el.textContent=t;el.style.color=error?'#ff9999':'#9fd9ba'}
 function values(form){return Object.fromEntries(new FormData(form).entries())}
-async function show(page){document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==page);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#sectionSubtitle').textContent=({overview:'Campaign delivery and account performance at a glance.',smtp:'Configure providers and enforce sending limits.',contacts:'Permission-based audience management.',campaigns:'Monitor and control campaign deliveries.',editor:'Build and preview your HTML email.',settings:'Administrator identity and security.'})[page]||'';$('#heading').textContent=({overview:'Overview',smtp:'SMTP Accounts',contacts:'Contacts',campaigns:'Campaigns',editor:'Compose Email',settings:'Account Settings'})[page];try{if(page==='overview')await stats();if(page==='smtp'||page==='editor')await listAccounts();if(page==='contacts')await listContacts();if(page==='campaigns')await listCampaigns()}catch(e){alertText(e.message,true)}}
+async function show(page){document.querySelectorAll('.page').forEach(p=>p.hidden=p.id!==page);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('#sectionSubtitle').textContent=({overview:'Campaign delivery and account performance at a glance.',smtp:'Configure providers and enforce sending limits.',contacts:'Permission-based audience management.',campaigns:'Monitor and control campaign deliveries.',editor:'Build and preview your HTML email.',settings:'Administrator identity, security, and backups.'})[page]||'';$('#heading').textContent=({overview:'Overview',smtp:'SMTP Accounts',contacts:'Contacts',campaigns:'Campaigns',editor:'Compose Email',settings:'Account Settings & Backups'})[page];try{if(page==='overview')await stats();if(page==='smtp'||page==='editor')await listAccounts();if(page==='contacts')await listContacts();if(page==='campaigns')await listCampaigns();if(page==='settings')await listBackups()}catch(e){alertText(e.message,true)}}
+
+async function listBackups() {
+  const { backups } = await api('/api/backups');
+  const fmtSize = (b) => (b / 1024 / 1024).toFixed(2) + ' MB';
+  $('#backupList').innerHTML = backups && backups.length ?
+    '<div class="table-wrap"><table class="data-table"><thead><tr><th>File</th><th>Date</th><th>Size</th></tr></thead><tbody>' +
+    backups.map(b => `<tr><td>${escapeHTML(b.filename)}</td><td>${new Date(b.timestamp).toLocaleString()}</td><td>${fmtSize(b.size)}</td></tr>`).join('') +
+    '</tbody></table></div>' : '<div class="empty-state">No backups found.</div>';
+
+  const select = $('#restoreBackupSelect');
+  if (select) {
+    select.innerHTML = '<option value="">Select a backup</option>' + (backups || []).map(b => `<option value="${escapeHTML(b.filename)}">${escapeHTML(b.filename)} - ${new Date(b.timestamp).toLocaleString()}</option>`).join('');
+  }
+}
+
+if ($('#createBackupBtn')) {
+  $('#createBackupBtn').addEventListener('click', async () => {
+    try {
+      $('#createBackupBtn').disabled = true;
+      $('#createBackupBtn').textContent = 'Creating...';
+      const res = await api('/api/backups', { method: 'POST' });
+      alertText(`Backup created: ${res.filename}`);
+      await listBackups();
+    } catch (e) {
+      alertText('Backup failed: ' + e.message, true);
+    } finally {
+      $('#createBackupBtn').disabled = false;
+      $('#createBackupBtn').textContent = 'Create Backup';
+    }
+  });
+}
+
+if ($('#restoreBackupForm')) {
+  $('#restoreBackupForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = $('#restoreBackupForm button');
+    try {
+      btn.disabled = true;
+      btn.textContent = 'Restoring...';
+      const data = values(e.target);
+      data.dryRun = !!data.dryRun;
+      const res = await api('/api/backups/restore', { method: 'POST', body: JSON.stringify(data) });
+      const logs = $('#restoreLogs');
+      logs.style.display = 'block';
+      logs.textContent = (res.dryRun ? 'DRY RUN LOGS:\n' : 'RESTORE LOGS:\n') + res.logs.join('\n');
+      alertText(res.dryRun ? 'Dry run completed.' : 'Restore completed. Refresh to see changes.');
+    } catch (err) {
+      alertText('Restore failed: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Restore Backup';
+    }
+  });
+}
 async function stats(){
  const [d,campaigns]=await Promise.all([api('/api/stats'),api('/api/campaigns')]);
  const m=d.messages||{},c=d.contacts||{};
