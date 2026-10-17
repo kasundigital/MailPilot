@@ -192,3 +192,16 @@ input[type="checkbox"]{accent-color:var(--accent)}
 #contactList[aria-busy="true"]{opacity:.65}
 @media(max-width:950px){.contact-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.contact-toolbar{grid-template-columns:1fr}.contact-bulk button{flex:1 1 auto;min-height:40px}}
+
+/* Draft SMTP connection test: compact form action and inline diagnostic. */
+.smtp-form-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:none}
+.smtp-form-actions button{min-height:35px;white-space:nowrap}
+.smtp-test-feedback{margin-top:12px;padding:10px 12px;border:1px solid var(--stroke);border-radius:7px;font-size:12px;line-height:1.5;color:var(--fg);background:var(--surface2)}
+.smtp-test-success{color:var(--ui-success);background:var(--ui-success-bg);border-color:transparent}
+.smtp-test-error{color:var(--ui-danger);background:var(--ui-danger-bg);border-color:transparent}
+.smtp-test-pending{color:var(--subtle);background:var(--surface2)}
+.smtp-test-help{font-size:11px;line-height:1.5;margin:9px 0 0}
+@media(max-width:650px){
+  .smtp-form-actions{width:100%;flex-wrap:wrap}
+  .smtp-form-actions button{flex:1 1 100%;width:100%;min-height:42px}
+}
