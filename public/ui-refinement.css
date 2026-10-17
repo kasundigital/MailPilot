@@ -174,3 +174,21 @@ input[type="checkbox"]{accent-color:var(--accent)}
  .campaign-actions button{min-height:33px}
 }
 @media(prefers-reduced-motion:reduce){button,.file-label{transition:none!important}button:active:not(:disabled){transform:none}}
+
+
+/* Issue #37: contacts management — compact, accessible data controls. */
+.contact-toolbar{display:grid;grid-template-columns:minmax(190px,2fr) repeat(3,minmax(120px,1fr));gap:10px;margin:12px 0}
+.contact-toolbar label{margin:0;color:var(--subtle);font-size:11px}
+.contact-toolbar input,.contact-toolbar select{margin-top:4px}
+.contact-bulk{display:flex;align-items:center;flex-wrap:wrap;gap:7px;border-top:1px solid var(--stroke);padding:12px 0}
+.contact-bulk span{color:var(--subtle);font-size:11px;margin-right:auto}
+.contact-bulk button{min-height:31px}
+.contact-table{min-width:680px}
+.contact-table th:first-child,.contact-table td:first-child{width:38px;text-align:center}
+.contact-table input[type="checkbox"]{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+.contact-table td{white-space:nowrap}
+.contact-table td:nth-child(5){max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.contact-pagination{margin-top:14px}
+#contactList[aria-busy="true"]{opacity:.65}
+@media(max-width:950px){.contact-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.contact-toolbar{grid-template-columns:1fr}.contact-bulk button{flex:1 1 auto;min-height:40px}}

@@ -32,7 +32,23 @@
   <div class="smtp-card-heading"><div><h2>Configured SMTP accounts</h2><p class="muted">Test connectivity and review SPF / DMARC for each sender. DNS checks do not guarantee delivery.</p></div></div>
   <div id="accountList" aria-live="polite"></div>
 </div>
-</section><section id="contacts" class="page" hidden><div class="panel"><h2>Import contacts</h2><form id="contactForm"><label>Paste email addresses (newline, comma or semicolon separated)<textarea name="emails" rows="6" placeholder="alex@example.com&#10;sam@example.org" required></textarea></label><label>How did recipients consent?<input name="consentSource" placeholder="Subscribed on my website" required></label><label class="check"><input type="checkbox" name="confirmConsent" required> I have permission to email every imported contact.</label><button>Import and deduplicate</button></form></div><div class="panel"><h2>Recent contacts</h2><button type="button" class="ghost" id="exportContacts">Export all contacts (CSV)</button><div id="contactList"></div></div></section><section id="campaigns" class="page" hidden><div class="panel"><div class="row"><h2>Campaigns</h2><button type="button" id="newCampaign">+ Create Campaign</button></div><p class="muted">Create and review an audience-specific draft before starting delivery.</p><div id="campaignList"></div></div></section><section id="editor" class="page" hidden><div class="panel"><div class="editor-header"><div><div class="eyebrow">CAMPAIGN STUDIO</div><h2>Create Campaign</h2><p class="muted">A step-by-step guide to configuring, targeting, and drafting your email campaign.</p></div><span class="status-pill" id="wizardProgress">Step 1 of 5</span></div><form id="campaignForm">
+</section><section id="contacts" class="page" hidden><div class="panel"><h2>Import contacts</h2><form id="contactForm"><label>Paste email addresses (newline, comma or semicolon separated)<textarea name="emails" rows="6" placeholder="alex@example.com&#10;sam@example.org" required></textarea></label><label>How did recipients consent?<input name="consentSource" placeholder="Subscribed on my website" required></label><label class="check"><input type="checkbox" name="confirmConsent" required> I have permission to email every imported contact.</label><button>Import and deduplicate</button></form></div><div class="panel contacts-panel">
+<div class="panel-heading"><div><h2>Contacts</h2><p class="muted">Search, manage and export permission-based contacts.</p></div><button type="button" class="ghost" id="exportContacts">Export all (CSV)</button></div>
+<div class="contact-toolbar">
+<label>Search by email<input id="contactSearch" type="search" placeholder="Search contacts…" autocomplete="off"></label>
+<label>Status<select id="contactStatus"><option value="all">All contacts</option><option value="subscribed">Subscribed</option><option value="unsubscribed">Unsubscribed</option></select></label>
+<label>Sort<select id="contactSort"><option value="recent">Newest first</option><option value="oldest">Oldest first</option><option value="email">Email A–Z</option><option value="status">Subscription status</option></select></label>
+<label>Tag<input id="contactTagFilter" placeholder="Filter by tag" maxlength="32"></label>
+</div>
+<div class="contact-bulk">
+<span id="contactSelectedCount" aria-live="polite">0 selected</span>
+<button type="button" id="contactBulkTag" class="ghost" disabled>Add tag</button>
+<button type="button" id="contactBulkSuppress" class="danger" disabled>Suppress selected</button>
+<button type="button" id="contactBulkExport" class="ghost" disabled>Export selected</button>
+</div>
+<div id="contactList" aria-live="polite">Loading contacts…</div>
+<div class="campaign-pagination contact-pagination"><span id="contactCount">Loading…</span><div class="campaign-pagination-buttons"><button id="contactPrev" type="button" class="ghost" disabled>Previous</button><span id="contactPageLabel">Page 1</span><button id="contactNext" type="button" class="ghost" disabled>Next</button></div></div>
+</div></section><section id="campaigns" class="page" hidden><div class="panel"><div class="row"><h2>Campaigns</h2><button type="button" id="newCampaign">+ Create Campaign</button></div><p class="muted">Create and review an audience-specific draft before starting delivery.</p><div id="campaignList"></div></div></section><section id="editor" class="page" hidden><div class="panel"><div class="editor-header"><div><div class="eyebrow">CAMPAIGN STUDIO</div><h2>Create Campaign</h2><p class="muted">A step-by-step guide to configuring, targeting, and drafting your email campaign.</p></div><span class="status-pill" id="wizardProgress">Step 1 of 5</span></div><form id="campaignForm">
 
 <div class="wizard-step" data-step="1">
 <div class="eyebrow">1 / CAMPAIGN DETAILS</div>
