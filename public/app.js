@@ -19,7 +19,30 @@ async function listContacts(){const d=await api('/api/contacts');$('#contactList
 async function listCampaigns(){const d=await api('/api/campaigns');$('#campaignList').innerHTML=d.map(x=>'<div class="row"><div><strong>'+escapeHTML(x.name||x.subject)+'</strong><br><span>'+escapeHTML(x.account_name)+' • '+x.sent+'/'+x.total+' sent • '+x.audience_total+' selected • '+escapeHTML(x.status)+'</span></div><div>'+(x.status==='draft'||x.status==='paused'?'<button data-start="'+x.id+'">Start</button> ':'')+(x.status==='running'?'<button data-pause="'+x.id+'">Pause</button>':'')+' <button class="ghost" data-duplicate="'+x.id+'">Duplicate</button> '+(x.status!=='running'?'<button class="ghost" data-delete="'+x.id+'">Delete</button>':'')+' <button class="ghost" data-logs="'+x.id+'">Logs</button> <button class="ghost" data-export-logs="'+x.id+'">Export CSV</button></div></div>').join('')||'No campaigns yet.'}
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify(values(e.target))});const me=await api('/api/me');csrfToken=me.csrfToken;$('#currentAdminEmail').textContent=me.email||'—';$('#auth').hidden=true;$('#app').hidden=false;await show('overview')}catch(err){$('#loginNotice').textContent=err.message}});
 $('#exportContacts').onclick=async()=>{try{const response=await fetch('/api/contacts/export.csv',{credentials:'same-origin'});if(!response.ok)throw Error('Contact export failed');const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='mailpilot-contacts.csv';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);alertText('Contact CSV exported.')}catch(err){alertText(err.message,true)}};
-$('#logout').onclick=async()=>{await api('/api/logout',{method:'POST'});location.reload()};
+$('#logout').onclick=async()=>{
+ const button=$('#logout');
+ if(button.disabled)return;
+ button.disabled=true;
+ button.textContent='Signing out…';
+ try{
+   try{await api('/api/logout',{method:'POST'});}
+   catch(error){
+     // Refresh an expired CSRF token once, rather than leaving Sign out stuck.
+     const me=await api('/api/me');
+     csrfToken=me.csrfToken;
+     await api('/api/logout',{method:'POST'});
+   }
+   csrfToken='';
+   $('#app').hidden=true;
+   $('#auth').hidden=false;
+   $('#loginForm').reset();
+   window.location.replace('/');
+ }catch(error){
+   alertText('Sign out failed: '+error.message,true);
+   button.disabled=false;
+   button.textContent='Sign out ↗';
+ }
+};
 $('#changePasswordForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const fields=values(e.target);
@@ -154,3 +177,6 @@ $('#themeToggle').addEventListener('click',toggleMailpilotTheme);
 $('#headerThemeToggle').addEventListener('click',toggleMailpilotTheme);
 $('#headerNewCampaign').addEventListener('click',()=>$('#newCampaign').click());
 document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.go)));
+
+// Version badge reads the real package version via the server, never hard-coded UI text.
+api('/api/version').then(data=>{const el=$('#appVersion');if(el)el.textContent='v'+data.version;}).catch(()=>{});
