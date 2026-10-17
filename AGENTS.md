@@ -2,6 +2,12 @@
 
 Use these instructions for all UI/UX work by ChatGPT, Codex, Jules, Claude, and other coding agents. Reuse them as a starting point for future projects.
 
+## Reusable frontend-design skill
+
+- For all frontend/UI work, load and apply the repository skill at `.agents/skills/frontend-design/SKILL.md` together with these MailPilot-specific instructions. This skill is discoverable by Codex when working in this repository.
+- Reuse this skill as the starting standard for new web-app repositories. For a global Codex installation across repositories, copy it to `~/.agents/skills/frontend-design/SKILL.md` on the machine running Codex.
+- Keep each project's real brand and functional requirements. Do not impose a generic design template or overwrite its existing instructions.
+
 ## Product and safety
 - Build a calm, premium, compact, professional SaaS application instead of a toy-like dashboard.
 - Inspect existing screens, styles, APIs, page IDs and handlers first; preserve established workflows.
