@@ -16,7 +16,104 @@ async function stats(){
 }
 async function listAccounts(){accounts=await api('/api/accounts');$('#accountSelect').innerHTML=accounts.map(x=>'<option value="'+x.id+'">'+escapeHTML(x.label)+'</option>').join('');$('#accountList').innerHTML=accounts.length?accounts.map(x=>'<div class="row"><div><strong>'+escapeHTML(x.label)+'</strong><br><span>'+escapeHTML(x.from_email)+' • '+escapeHTML(x.host)+':'+x.port+' • '+x.per_minute+'/min, '+x.per_hour+'/h, '+x.per_day+'/day</span></div><button data-dns="'+x.id+'">Check DNS</button><button data-test="'+x.id+'">Test SMTP</button></div>').join(''):'No SMTP accounts yet.'}
 async function listContacts(){const d=await api('/api/contacts');$('#contactList').innerHTML=d.map(x=>'<div class="row"><div>'+escapeHTML(x.email)+'</div><span>'+(x.subscribed?'Subscribed':'Unsubscribed')+'</span></div>').join('')||'No contacts yet.'}
-async function listCampaigns(){const d=await api('/api/campaigns');$('#campaignList').innerHTML=d.map(x=>'<div class="row"><div><strong>'+escapeHTML(x.name||x.subject)+'</strong><br><span>'+escapeHTML(x.account_name)+' • '+x.sent+'/'+x.total+' sent • '+x.audience_total+' selected • '+escapeHTML(x.status)+'</span></div><div>'+(x.status==='draft'||x.status==='paused'?'<button data-start="'+x.id+'">Start</button> ':'')+(x.status==='running'?'<button data-pause="'+x.id+'">Pause</button>':'')+' <button class="ghost" data-duplicate="'+x.id+'">Duplicate</button> '+(x.status!=='running'?'<button class="ghost" data-delete="'+x.id+'">Delete</button>':'')+' <button class="ghost" data-logs="'+x.id+'">Logs</button> <button class="ghost" data-export-logs="'+x.id+'">Export CSV</button></div></div>').join('')||'No campaigns yet.'}
+// Campaigns view: filter and paginate REAL API rows; keep existing data-* actions.
+let campaignRows=[], campaignQuery='', campaignStatus='all', campaignPage=0;
+const CAMPAIGN_PAGE_SIZE=10;
+const campaignNum=value=>{
+ const n=Number(value);
+ return Number.isFinite(n)?Math.max(0,n).toLocaleString():'—';
+};
+const campaignDate=value=>{
+ if(!value)return '—';
+ const parsed=new Date(value);
+ return Number.isNaN(parsed.getTime())?'—':parsed.toLocaleDateString();
+};
+function campaignActions(x){
+ const id=escapeHTML(x.id);
+ return '<div class="campaign-actions">'+
+  (x.status==='draft'||x.status==='paused'?'<button type="button" data-start="'+id+'">Start</button> ':'')+
+  (x.status==='running'?'<button type="button" data-pause="'+id+'">Pause</button> ':'')+
+  '<button type="button" class="ghost" data-duplicate="'+id+'">Duplicate</button>'+
+  (x.status!=='running'?'<button type="button" class="danger" data-delete="'+id+'">Delete</button>':'')+
+  '<button type="button" class="ghost" data-logs="'+id+'">Logs</button>'+
+  '<button type="button" class="ghost" data-export-logs="'+id+'">Export CSV</button>'+
+  '</div>';
+}
+function renderCampaignTable(){
+ const matching=campaignRows.filter(x=>
+  (campaignStatus==='all'||String(x.status||'').toLowerCase()===campaignStatus)&&
+  [x.name,x.subject,x.account_name].some(v=>String(v||'').toLowerCase().includes(campaignQuery.toLowerCase()))
+ );
+ const totalPages=Math.max(1,Math.ceil(matching.length/CAMPAIGN_PAGE_SIZE));
+ campaignPage=Math.max(0,Math.min(campaignPage,totalPages-1));
+ const start=campaignPage*CAMPAIGN_PAGE_SIZE;
+ const pageRows=matching.slice(start,start+CAMPAIGN_PAGE_SIZE);
+ const tableBody=pageRows.map(x=>{
+  const status=String(x.status||'unknown');
+  const statusClass=status.toLowerCase().replace(/[^a-z0-9-]/g,'');
+  const name=x.name||x.subject||'Untitled campaign';
+  const secondary=x.name&&x.subject&&x.name!==x.subject?x.subject:(x.account_name||'');
+  return '<tr>'+
+   '<td class="campaign-name"><strong>'+escapeHTML(name)+'</strong><small>'+escapeHTML(secondary)+'</small></td>'+
+   '<td><span class="status-tag status-'+statusClass+'">'+escapeHTML(status)+'</span></td>'+
+   '<td class="numeric">'+campaignNum(x.audience_total??x.total)+'</td>'+
+   '<td class="numeric">'+campaignNum(x.sent)+'</td>'+
+   '<td>'+escapeHTML(campaignDate(x.created_at))+'</td>'+
+   '<td>'+campaignActions(x)+'</td>'+
+   '</tr>';
+ }).join('');
+ $('#campaignTableArea').innerHTML=pageRows.length
+  ?'<div class="table-wrap"><table class="data-table campaign-table">'+
+    '<thead><tr><th scope="col">CAMPAIGN</th><th scope="col">STATUS</th>'+
+    '<th scope="col" class="numeric">RECIPIENTS</th><th scope="col" class="numeric">SENT</th>'+
+    '<th scope="col">CREATED</th><th scope="col">ACTIONS</th></tr></thead>'+
+    '<tbody>'+tableBody+'</tbody></table></div>'
+  :'<div class="campaign-table-empty">'+(campaignRows.length?'No campaigns match your search or status filter.':'No campaigns yet. Create a campaign to begin.')+'</div>';
+ const first=matching.length?start+1:0;
+ const last=Math.min(start+pageRows.length,matching.length);
+ $('#campaignPager').innerHTML=
+  '<span class="campaign-count">Showing '+first+'–'+last+' of '+matching.length+' campaigns</span>'+
+  '<div class="campaign-pagination-buttons">'+
+  '<button type="button" class="ghost" data-campaign-page="prev"'+(campaignPage===0?' disabled':'')+'>← Previous</button>'+
+  '<span>Page '+(campaignPage+1)+' of '+totalPages+'</span>'+
+  '<button type="button" class="ghost" data-campaign-page="next"'+(campaignPage>=totalPages-1?' disabled':'')+'>Next →</button></div>';
+}
+async function listCampaigns(){
+ const fetched=await api('/api/campaigns');
+ campaignRows=Array.isArray(fetched)?fetched:[];
+ const el=$('#campaignList');
+ el.innerHTML='<div class="campaign-toolbar">'+
+  '<label class="campaign-search" for="campaignSearch"><span>SEARCH CAMPAIGNS</span>'+
+  '<input id="campaignSearch" type="search" placeholder="Search campaigns..." autocomplete="off"></label>'+
+  '<label class="campaign-filter" for="campaignStatus"><span>STATUS</span>'+
+  '<select id="campaignStatus"><option value="all">All statuses</option>'+
+  '<option value="draft">Draft</option><option value="running">Running</option>'+
+  '<option value="paused">Paused</option><option value="completed">Completed</option>'+
+  '<option value="failed">Failed</option></select></label></div>'+
+  '<div id="campaignTableArea"></div><div id="campaignPager" class="campaign-pagination"></div>';
+ $('#campaignSearch').value=campaignQuery;
+ $('#campaignStatus').value=campaignStatus;
+ renderCampaignTable();
+}
+$('#campaignList').addEventListener('input',e=>{
+ if(e.target.id!=='campaignSearch')return;
+ campaignQuery=e.target.value;
+ campaignPage=0;
+ renderCampaignTable();
+});
+$('#campaignList').addEventListener('change',e=>{
+ if(e.target.id!=='campaignStatus')return;
+ campaignStatus=e.target.value;
+ campaignPage=0;
+ renderCampaignTable();
+});
+$('#campaignList').addEventListener('click',e=>{
+ const pager=e.target.closest('[data-campaign-page]');
+ if(!pager||pager.disabled)return;
+ campaignPage+=pager.dataset.campaignPage==='next'?1:-1;
+ renderCampaignTable();
+});
+
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify(values(e.target))});const me=await api('/api/me');csrfToken=me.csrfToken;$('#currentAdminEmail').textContent=me.email||'—';$('#auth').hidden=true;$('#app').hidden=false;await show('overview')}catch(err){$('#loginNotice').textContent=err.message}});
 $('#exportContacts').onclick=async()=>{try{const response=await fetch('/api/contacts/export.csv',{credentials:'same-origin'});if(!response.ok)throw Error('Contact export failed');const blob=await response.blob();const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='mailpilot-contacts.csv';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);alertText('Contact CSV exported.')}catch(err){alertText(err.message,true)}};
 $('#logout').onclick=async()=>{
