@@ -61,14 +61,14 @@ test('bulk tagging and suppression are transactional, audited, and leave subscri
  assert.equal(tagged.statusCode,200);
  assert.deepEqual(tagged.json(),{ok:true,selected:1,changed:1});
  assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('INSERT IGNORE INTO contact_tags')));
- assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('contacts_bulk_tagged')));
+ assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('INSERT INTO audit_logs')&&x.params[1]==='contacts_bulk_tagged'));
  assert.ok(tx.includes('COMMIT'));
  tx=[];
  const suppressed=await app.inject({method:'POST',url:'/api/contacts/bulk',headers:session.headers,payload:{action:'suppress',ids:[7]}});
  assert.equal(suppressed.statusCode,200);
  assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('SET subscribed=0')));
  assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes("status='suppressed'")));
- assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('contacts_bulk_suppressed')));
+ assert.ok(tx.some(x=>typeof x==='object'&&x.sql.includes('INSERT INTO audit_logs')&&x.params[1]==='contacts_bulk_suppressed'));
  assert.ok(tx.includes('COMMIT'));
 });
 test('selected CSV respects request ID bounds',async()=>{
