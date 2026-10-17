@@ -23,4 +23,23 @@ test('reports missing and ambiguous TXT records',async()=>{
   const result=await checkSenderDns('x@example.org',resolver);
   assert.equal(result.spf.status,'multiple');
   assert.equal(result.dmarc.status,'unknown');
+  assert.ok(result.actionableGuidance.some(g => g.includes('Multiple SPF records found')));
+});
+
+test('provides actionable guidance for missing records',async()=>{
+  const resolver={resolveTxt:async name=>Promise.reject(Object.assign(new Error(),{code:'ENODATA'}))};
+  const result=await checkSenderDns('test@missing.org',resolver);
+  assert.equal(result.spf.status,'unknown');
+  assert.equal(result.dmarc.status,'unknown');
+  assert.ok(Array.isArray(result.actionableGuidance));
+});
+
+test('provides actionable guidance for p=none policy',async()=>{
+  const resolver={resolveTxt:async name=>{
+    if(name==='example.org')return [['v=spf1 include:_spf.example.org -all']];
+    if(name==='_dmarc.example.org')return [['v=DMARC1; p=none;']];
+    throw Object.assign(new Error('missing'),{code:'ENODATA'});
+  }};
+  const result=await checkSenderDns('test@example.org',resolver);
+  assert.ok(result.actionableGuidance.some(g => g.includes('policy is set to "none"')));
 });

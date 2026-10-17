@@ -32,6 +32,31 @@
   <div class="smtp-card-heading"><div><h2>Configured SMTP accounts</h2><p class="muted">Test connectivity and review SPF / DMARC for each sender. DNS checks do not guarantee delivery.</p></div></div>
   <div id="accountList" aria-live="polite"></div>
 </div>
+
+<dialog id="dnsDialog" class="panel dns-dialog">
+  <div class="panel-heading">
+    <div><h2>Deliverability Dashboard</h2><p class="muted" id="dnsDomainName">Domain diagnostics</p></div>
+    <button type="button" class="ghost" id="closeDnsDialog" aria-label="Close">✕</button>
+  </div>
+  <div class="dns-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+    <div class="dns-card">
+      <h3>SPF Record</h3>
+      <div id="dnsSpfStatus" class="status-tag" style="margin:8px 0;">Checking...</div>
+      <code id="dnsSpfRecord" style="display:block;padding:8px;background:var(--bg-app);border-radius:4px;word-break:break-all;font-size:12px;color:var(--text-muted);"></code>
+    </div>
+    <div class="dns-card">
+      <h3>DMARC Policy</h3>
+      <div id="dnsDmarcStatus" class="status-tag" style="margin:8px 0;">Checking...</div>
+      <code id="dnsDmarcRecord" style="display:block;padding:8px;background:var(--bg-app);border-radius:4px;word-break:break-all;font-size:12px;color:var(--text-muted);"></code>
+    </div>
+  </div>
+  <div class="dns-guidance" style="background:var(--bg-app);padding:15px;border-radius:6px;border:1px solid var(--border);">
+    <h3 style="margin-top:0;">Actionable Guidance</h3>
+    <ul id="dnsGuidanceList" style="margin-bottom:0;padding-left:20px;color:var(--text-muted);"></ul>
+  </div>
+  <p class="muted" style="margin-top:15px;font-size:11px;">DNS presence does not guarantee deliverability, correct alignment, or inbox placement. DKIM requires provider-specific selectors and cannot be validated solely by domain.</p>
+</dialog>
+
 </section><section id="contacts" class="page" hidden><div class="panel"><h2>Import contacts</h2><form id="contactForm"><label>Paste email addresses (newline, comma or semicolon separated)<textarea name="emails" rows="6" placeholder="alex@example.com&#10;sam@example.org" required></textarea></label><label>How did recipients consent?<input name="consentSource" placeholder="Subscribed on my website" required></label><label class="check"><input type="checkbox" name="confirmConsent" required> I have permission to email every imported contact.</label><button>Import and deduplicate</button></form></div><div class="panel contacts-panel">
 <div class="panel-heading"><div><h2>Contacts</h2><p class="muted">Search, manage and export permission-based contacts.</p></div><button type="button" class="ghost" id="exportContacts">Export all (CSV)</button></div>
 <div class="contact-toolbar">

@@ -406,7 +406,39 @@ $('#sendTestEmailBtn').addEventListener('click', async () => {
 $('#pasteHtml').addEventListener('click',async()=>{try{const text=await navigator.clipboard.readText();if(!text)throw Error('Clipboard is empty');if(text.length>900000)throw Error('HTML exceeds 900 KB limit');$('#htmlInput').value=text;syncHtmlPreview();alertText('Pasted HTML from clipboard.')}catch(err){alertText('Clipboard access unavailable. Use Ctrl+V in the HTML source field. '+err.message,true)}});
 $('#clearHtml').addEventListener('click',()=>{if(!$('#htmlInput').value||confirm('Clear the HTML editor?')){$('#htmlInput').value='';syncHtmlPreview()}});
 
-document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{if(b.dataset.dns){const d=await api('/api/accounts/'+b.dataset.dns+'/dns');alertText(d.domain+' — SPF: '+d.spf.status+'; DMARC: '+d.dmarc.status+(d.dmarc.policy?' ('+d.dmarc.policy+')':'')+'; DKIM: requires a selector. DNS presence does not guarantee deliverability.')}if(b.dataset.test){const d=await api('/api/accounts/'+b.dataset.test+'/test',{method:'POST'});alertText(d.ok?'SMTP authentication successful':'SMTP failed')}if(b.dataset.start){if(!confirm('Start sending ONLY to the saved campaign audience? Review the audience size and SMTP settings first.'))return;try{
+document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
+  if(b.dataset.dns){
+    const d=await api('/api/accounts/'+b.dataset.dns+'/dns');
+    const dialog = $('#dnsDialog');
+    if (dialog) {
+      $('#dnsDomainName').textContent = escapeHTML(d.domain);
+      $('#dnsSpfStatus').textContent = escapeHTML(d.spf.status.toUpperCase());
+      $('#dnsSpfStatus').className = 'status-tag ' + (d.spf.status === 'present' ? 'status-sent' : 'status-failed');
+      $('#dnsSpfRecord').textContent = escapeHTML(d.spf.record || 'No record found');
+
+      $('#dnsDmarcStatus').textContent = escapeHTML(d.dmarc.status.toUpperCase() + (d.dmarc.policy ? ` (${d.dmarc.policy})` : ''));
+      $('#dnsDmarcStatus').className = 'status-tag ' + (d.dmarc.status === 'present' ? 'status-sent' : 'status-failed');
+      $('#dnsDmarcRecord').textContent = escapeHTML(d.dmarc.record || 'No record found');
+
+      const ul = $('#dnsGuidanceList');
+      ul.innerHTML = '';
+      if (d.actionableGuidance && d.actionableGuidance.length) {
+        d.actionableGuidance.forEach(g => {
+          const li = document.createElement('li');
+          li.textContent = g;
+          ul.appendChild(li);
+        });
+      } else {
+        ul.innerHTML = '<li>Records look good. Continue monitoring deliverability.</li>';
+      }
+
+      dialog.showModal();
+    } else {
+      alertText(d.domain+' — SPF: '+d.spf.status+'; DMARC: '+d.dmarc.status+(d.dmarc.policy?' ('+d.dmarc.policy+')':'')+'; DKIM: requires a selector. DNS presence does not guarantee deliverability.');
+    }
+  }
+  if(b.id === 'closeDnsDialog') { $('#dnsDialog').close(); }
+  if(b.dataset.test){const d=await api('/api/accounts/'+b.dataset.test+'/test',{method:'POST'});alertText(d.ok?'SMTP authentication successful':'SMTP failed')}if(b.dataset.start){if(!confirm('Start sending ONLY to the saved campaign audience? Review the audience size and SMTP settings first.'))return;try{
       await api('/api/campaigns/'+b.dataset.start+'/start',{method:'POST'})
     }catch(err){
       if(!err.message.includes('Legacy draft has no audience'))throw err;

@@ -21,11 +21,32 @@ export async function checkSenderDns(email, resolver = dns) {
   const dmarcRecords = dmarcTxt.records.filter(v => /^v=dmarc1(?:\s|;|$)/i.test(v));
   const dmarc = dmarcRecords[0] || null;
   const policy = dmarc?.match(/(?:^|;)\s*p\s*=\s*(none|quarantine|reject)(?:\s*;|\s*$)/i)?.[1]?.toLowerCase() || null;
+
+  const spfStatus = spfTxt.error && !spfRecords.length ? 'unknown' : spfRecords.length===1?'present':spfRecords.length>1?'multiple':'missing';
+  const dmarcStatus = dmarcTxt.error && !dmarcRecords.length ? 'unknown' : dmarcRecords.length===1?'present':dmarcRecords.length>1?'multiple':'missing';
+
+  const actionableGuidance = [];
+
+  if (spfStatus === 'missing') {
+    actionableGuidance.push('Create a TXT record for SPF to authorize your sending IP/provider.');
+  } else if (spfStatus === 'multiple') {
+    actionableGuidance.push('Multiple SPF records found. Merge them into a single TXT record.');
+  }
+
+  if (dmarcStatus === 'missing') {
+    actionableGuidance.push(`Create a _dmarc TXT record with at least 'v=DMARC1; p=none;' to monitor alignment.`);
+  } else if (dmarcStatus === 'multiple') {
+    actionableGuidance.push('Multiple DMARC records found. Remove duplicates.');
+  } else if (dmarcStatus === 'present' && (!policy || policy === 'none')) {
+    actionableGuidance.push('Your DMARC policy is set to "none". Once alignment is confirmed, upgrade to "quarantine" or "reject".');
+  }
+
   return {
     domain,
-    spf:{status:spfTxt.error && !spfRecords.length ? 'unknown' : spfRecords.length===1?'present':spfRecords.length>1?'multiple':'missing',record:spfRecords[0]||null,error:spfTxt.error},
-    dmarc:{status:dmarcTxt.error && !dmarcRecords.length ? 'unknown' : dmarcRecords.length===1?'present':dmarcRecords.length>1?'multiple':'missing',policy,record:dmarc,error:dmarcTxt.error},
+    spf:{status:spfStatus,record:spfRecords[0]||null,error:spfTxt.error},
+    dmarc:{status:dmarcStatus,policy,record:dmarc,error:dmarcTxt.error},
     dkim:{status:'not_checked',reason:'DKIM requires a provider-specific selector; DNS checks alone cannot establish message signing or alignment.'},
+    actionableGuidance,
     note:'DNS presence does not prove correct authentication, alignment, inbox delivery, or SMTP provider quotas.'
   };
 }
