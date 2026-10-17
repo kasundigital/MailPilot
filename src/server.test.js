@@ -80,6 +80,60 @@ test('POST /unsubscribe fails with invalid signature', async () => {
     assert.equal(res.body, 'Invalid link');
 });
 
+test('server backups api', async (t) => {
+  const { app } = await import('./server.js');
+  const { getCsrfSession } = await import('./test/csrf-helper.js');
+
+  let sessionHeaders;
+
+  t.before(async () => {
+    const session = await getCsrfSession(app, process.env.ADMIN_EMAIL);
+    sessionHeaders = session.headers;
+  });
+
+  await t.test('GET /api/backups returns 200', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/backups',
+      headers: sessionHeaders
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.ok(Array.isArray(body.backups));
+  });
+
+  let createdBackup;
+
+  await t.test('POST /api/backups creates a new encrypted backup', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/backups',
+      headers: sessionHeaders
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.ok(body.filename);
+    assert.ok(body.filename.startsWith('backup_'));
+    assert.ok(body.filename.endsWith('.enc'));
+    assert.ok(body.size > 0);
+    createdBackup = body.filename;
+  });
+
+  await t.test('POST /api/backups/restore dry run successfully restores data', async () => {
+    if (!createdBackup) return;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/backups/restore',
+      headers: sessionHeaders,
+      payload: { filename: createdBackup, dryRun: true }
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.payload);
+    assert.equal(body.dryRun, true);
+    assert.ok(Array.isArray(body.logs));
+  });
+});
+
 test('server test api/accounts', async (t) => {
 
   pool.query = async (sql, params) => {

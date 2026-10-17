@@ -100,4 +100,25 @@
 <p class="muted">Unsubscribe links are appended to all outgoing messages.</p>
 </div>
 
-</form></div></section><section id="settings" class="page" hidden><div class="panel"><div class="eyebrow">ACCOUNT &amp; SECURITY</div><h2>Administrator account</h2><p class="muted">Signed in as <strong id="currentAdminEmail">—</strong>.</p><h3>Change password</h3><p class="muted">Changing your password signs out all existing sessions, including this one.</p><form id="changePasswordForm"><label>Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>New password (12 characters minimum)<input name="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><button type="submit">Update password</button></form><p class="muted">Do not put passwords into email templates or commit them to Git.</p></div></section><div class="notice" id="notice" role="status"></div></main></div><script src="/app.js" defer></script></body></html>
+</form></div></section><section id="settings" class="page" hidden><div class="panel"><div class="eyebrow">ACCOUNT &amp; SECURITY</div><h2>Administrator account</h2><p class="muted">Signed in as <strong id="currentAdminEmail">—</strong>.</p><h3>Change password</h3><p class="muted">Changing your password signs out all existing sessions, including this one.</p><form id="changePasswordForm"><label>Current password<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>New password (12 characters minimum)<input name="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><label>Confirm new password<input name="confirmPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><button type="submit">Update password</button></form><p class="muted">Do not put passwords into email templates or commit them to Git.</p></div>
+
+<div class="panel" style="margin-top:20px;">
+  <div class="eyebrow">DATA &amp; RESILIENCE</div>
+  <div class="row"><h2>Backups &amp; Restore</h2><button type="button" id="createBackupBtn">Create Backup</button></div>
+  <p class="muted">Encrypted backups containing all databases, contacts, and settings.</p>
+  <div id="backupList" aria-live="polite">Loading backups...</div>
+
+  <form id="restoreBackupForm" style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
+    <h3>Restore from Backup</h3>
+    <p class="muted">Select a backup file to restore. A dry-run will only log the changes without modifying the database.</p>
+    <label>Backup file
+      <select name="filename" id="restoreBackupSelect" required>
+        <option value="">Select a backup</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="dryRun" checked> Dry run (simulate restore only)</label>
+    <button type="submit" class="danger">Restore Backup</button>
+  </form>
+  <pre id="restoreLogs" style="margin-top:20px;display:none;background:var(--bg-panel);padding:10px;border-radius:4px;font-size:12px;overflow-x:auto;"></pre>
+</div>
+</section><div class="notice" id="notice" role="status"></div></main></div><script src="/app.js" defer></script></body></html>

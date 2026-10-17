@@ -73,3 +73,16 @@ docker run -d --name mailpilot-app --network mailpilot-net --restart unless-stop
 Wait for MariaDB readiness before starting the application. Health: curl -fsS http://127.0.0.1:3088/health. Configure HTTPS reverse proxy independently; TLS is required for secure admin cookies.
 
 Do not put real database passwords into your shell history or source control.
+
+## Upgrade Rollback & Restore
+
+If an update fails or introduces breaking changes, you can roll back your MailPilot instance using the integrated JSON backups:
+1. Ensure you have created a backup via the MailPilot UI **before** running the update script.
+2. If you need to roll back, revert to the previous Docker image tag in your `.env` (e.g., `MAILPILOT_IMAGE_TAG=0.2.3`).
+3. Start the application with the older image.
+4. Go to the "Account Settings & Backups" tab in the UI.
+5. Select your pre-upgrade backup file from the dropdown.
+6. (Optional) Perform a **Dry run** to verify the data to be restored.
+7. Uncheck the "Dry run" box and click "Restore Backup" to clear the newer schema/data and re-insert the JSON rows from the backup file.
+
+*Note: The restore functionality truncates the tables and inserts the data from the encrypted backup file. Ensure you use the exact same `ENCRYPTION_KEY` that was used to create the backup.*

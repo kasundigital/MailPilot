@@ -17,6 +17,7 @@ import {pool,init} from './db.js';
 import {checkSenderDns} from './dns-diagnostics.js';
 import {contactIds,contactTag,contactPageOptions} from './contact-management.js';
 import {normalizeEmail,parseEmails,encrypt,decrypt,signUnsubscribe,validSignature,safeLimits,escapeHtml} from './core.js';
+import {createBackup,listBackups,restoreBackup} from './backup.js';
 const APP_VERSION=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
 const {ADMIN_EMAIL,ADMIN_PASSWORD,JWT_SECRET,ENCRYPTION_KEY,PUBLIC_URL}=process.env;
 
@@ -115,6 +116,35 @@ app.post('/api/me/password',{preHandler:csrfAuth,config:{rateLimit:{max:5,timeWi
 });
 
 app.get('/api/stats',{preHandler:auth},async()=>{const [contacts]=await rows('SELECT COUNT(*) total,SUM(subscribed=1) subscribed FROM contacts');const [messages]=await rows("SELECT COUNT(*) total,SUM(status='sent') sent,SUM(status='queued') queued,SUM(status='failed') failed FROM messages");return {contacts,messages}});
+
+app.get('/api/backups', { preHandler: auth }, async () => {
+  const backups = await listBackups();
+  return { backups };
+});
+
+app.post('/api/backups', { preHandler: csrfAuth }, async (req, reply) => {
+  try {
+    const backup = await createBackup(ENCRYPTION_KEY);
+    await audit(req, 'backup_created', `Created backup ${backup.filename}`);
+    return backup;
+  } catch (err) {
+    return reply.code(500).send({ error: 'Failed to create backup: ' + err.message });
+  }
+});
+
+app.post('/api/backups/restore', { preHandler: csrfAuth }, async (req, reply) => {
+  const { filename, dryRun } = req.body || {};
+  if (!filename || typeof filename !== 'string') {
+    return reply.code(400).send({ error: 'Filename is required' });
+  }
+  try {
+    const result = await restoreBackup(filename, ENCRYPTION_KEY, !!dryRun);
+    await audit(req, 'backup_restore', `Restored backup ${filename} (dryRun: ${!!dryRun})`);
+    return result;
+  } catch (err) {
+    return reply.code(500).send({ error: 'Restore failed: ' + err.message });
+  }
+});
 app.get('/api/accounts',{preHandler:auth},async()=>rows('SELECT id,label,host,port,secure,username,from_name,from_email,per_minute,per_hour,per_day,enabled FROM accounts ORDER BY id DESC'));
 app.post('/api/accounts', { preHandler: csrfAuth }, async (req, reply) => {
   const x = req.body || {};
