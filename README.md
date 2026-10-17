@@ -105,3 +105,8 @@ MIT. See LICENSE.
 ## Contact management
 
 The Contacts screen offers server-side email search, status/tag filters, sorting and 25-contact pages. You can select up to 100 contacts per API request (the UI selects only the visible page), export selected addresses to CSV, add tags or suppress contacts. Suppression sets subscribed=false and removes queued messages for those contacts; it cannot be reversed from this interface, and it never re-subscribes people. Consent is still required when importing. All mutations require administrator authentication, CSRF protection and write an audit entry. The new contact_tags table is created automatically during normal startup without altering historical contact records.
+
+
+## Test SMTP before saving
+
+On **SMTP Accounts**, complete the Connection fields and click **Test connection** before saving the sender. MailPilot attempts a TLS-protected SMTP connection and account login with the entered settings without storing a new SMTP account or sending an email. A message below the form confirms the result or provides safe diagnostics for authentication, network and TLS failures. Credentials are not returned in responses; tests require an authenticated admin session, CSRF validation and are rate-limited. Successfully verifying credentials is **not** proof of email deliverability. After saving, use **Test SMTP** in Configured SMTP accounts to verify the stored settings. For a real delivery check, use the explicitly triggered Compose Email test send.

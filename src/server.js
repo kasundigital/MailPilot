@@ -156,6 +156,60 @@ app.post('/api/accounts', { preHandler: csrfAuth }, async (req, reply) => {
 
   return { id: r.insertId };
 });
+// Verify unsaved SMTP settings without persisting credentials or sending mail.
+app.post('/api/accounts/test-connection', {
+  preHandler: csrfAuth,
+  config: { rateLimit: { max: 8, timeWindow: '1 minute' } }
+}, async (req, reply) => {
+  const x = req.body || {};
+  const host = typeof x.host === 'string' ? x.host.trim() : '';
+  const port = Number(x.port);
+  if (!/^[a-z0-9][a-z0-9.-]{0,252}$/i.test(host) ||
+      !Number.isInteger(port) || port < 1 || port > 65535 ||
+      typeof x.username !== 'string' || !x.username.trim() ||
+      x.username.length > 255 ||
+      typeof x.password !== 'string' || !x.password ||
+      x.password.length > 2048 || typeof x.secure !== 'boolean') {
+    return reply.code(400).send({error:'Enter a valid SMTP hostname, port, username and password.'});
+  }
+  const transport = nodemailer.createTransport({
+    host, port, secure:x.secure, requireTLS:!x.secure,
+    auth:{user:x.username,pass:x.password},
+    tls:{rejectUnauthorized:true,minVersion:'TLSv1.2'},
+    connectionTimeout:10000,greetingTimeout:10000,socketTimeout:10000
+  });
+  try {
+    await transport.verify(); // SMTP connect + authentication only; NEVER sendMail.
+    await audit(req,'smtp_draft_connection_test_success');
+    return {ok:true,message:'SMTP connection and authentication succeeded. No email was sent.'};
+  } catch (err) {
+    // Never expose error.message: upstream SMTP errors may contain credentials or internal host information.
+    const code=String(err?.code||'').toUpperCase();
+    const responseCode=Number(err?.responseCode||0);
+    let error='SMTP verification failed. Check the provider configuration and try again.';
+    let category='SMTP_TEST_FAILED';
+    let httpStatus=502;
+    if (code==='EAUTH'||[530,534,535].includes(responseCode)) {
+      category='AUTH_FAILED';
+      httpStatus=422;
+      error='SMTP authentication was rejected. Check your username and app password.';
+    } else if (['ETIMEDOUT','ESOCKET'].includes(code)) {
+      category='CONNECTION_FAILED';
+      error='Could not complete the SMTP connection. Check the hostname, port and firewall.';
+    } else if (['ENOTFOUND','EAI_AGAIN','ECONNECTION','ECONNREFUSED','EHOSTUNREACH','ENETUNREACH'].includes(code)) {
+      category='CONNECTION_FAILED';
+      error='Cannot reach the SMTP server. Check DNS, port and network access.';
+    } else if (['ETLS','CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE','DEPTH_ZERO_SELF_SIGNED_CERT','ERR_TLS_CERT_ALTNAME_INVALID'].includes(code)) {
+      category='TLS_FAILED';
+      error='TLS certificate or encryption verification failed. Check the SMTP TLS settings.';
+    }
+    await audit(req,'smtp_draft_connection_test_failed',category);
+    return reply.code(httpStatus).send({ok:false,code:category,error});
+  } finally {
+    transport.close();
+  }
+});
+
 app.get('/api/accounts/:id/dns',{preHandler:auth,config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req,reply)=>{
   const id=Number(req.params.id);
   if(!Number.isSafeInteger(id)||id<=0)return reply.code(400).send({error:'Invalid account ID'});

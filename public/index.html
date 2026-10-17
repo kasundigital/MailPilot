@@ -25,7 +25,15 @@
         <label>Per rolling 24 hours<input name="perDay" type="number" min="1" value="200" required></label>
       </div>
     </fieldset>
-    <div class="smtp-form-footer"><p class="muted">Sample limits are not provider quotas. Confirm allowed sending rates before using this account.</p><button type="submit">Add SMTP account</button></div>
+    <div class="smtp-form-footer">
+      <p class="muted">Sample limits are not provider quotas. Confirm allowed sending rates before using this account.</p>
+      <div class="smtp-form-actions">
+        <button type="button" id="smtpTestConnection" class="ghost" aria-describedby="smtpTestHelp">Test connection</button>
+        <button type="submit" id="smtpSaveAccount">Add SMTP account</button>
+      </div>
+    </div>
+    <div id="smtpTestFeedback" class="smtp-test-feedback" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <p id="smtpTestHelp" class="muted smtp-test-help">Test the SMTP connection and login before saving. This will not send an email or save your credentials.</p>
   </form>
 </div>
 <div class="panel smtp-accounts-panel">
