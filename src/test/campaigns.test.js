@@ -101,9 +101,9 @@ test('POST /api/campaigns sanitizes HTML and inserts campaign', async () => {
   const insertQuery = queries.find(q => q.sql.includes('INSERT INTO campaigns'));
   assert.ok(insertQuery);
   assert.equal(insertQuery.params[0], 1); // accountId
-  assert.equal(insertQuery.params[1], ''); // name (empty string if not provided)
+  assert.equal(insertQuery.params[1], ''); // name
   assert.equal(insertQuery.params[2], 'My Campaign'); // subject
-  assert.equal(insertQuery.params[3], ''); // preheader (empty string if not provided)
+  assert.equal(insertQuery.params[3], ''); // preheader
   assert.equal(insertQuery.params[4], '<h1>Title</h1><p>Hello</p>'); // sanitized html
   assert.equal(insertQuery.params[5], 'Custom plain'); // explicit plain
 });
