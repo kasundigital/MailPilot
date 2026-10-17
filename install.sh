@@ -20,7 +20,9 @@ fi
 # shellcheck disable=SC1091
 source /etc/os-release
 [[ "${ID:-}" == ubuntu || "${ID:-}" == debian || "${ID_LIKE:-}" == *debian* ]] || fail "Ubuntu or Debian required"
-[[ "$PORT" =~ ^[0-9]+$ ]] && ((PORT >= 1024 && PORT <= 65535)) || fail "Invalid MAILPILOT_PORT"
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || ! ((PORT >= 1024 && PORT <= 65535)); then
+  fail "Invalid MAILPILOT_PORT"
+fi
 [[ "$MODE" != update || ( -f "$DIR/.env" && -d "$DIR/.git" ) ]] || fail "No existing installation at $DIR; run install"
 log "Checking prerequisites"
 if ! command -v git >/dev/null || ! command -v curl >/dev/null || ! command -v openssl >/dev/null || ! command -v python3 >/dev/null || ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
@@ -70,7 +72,9 @@ PY
 else
   [[ -d "$DIR/.git" ]] || fail "Refusing to modify existing non-Git installation"
   cd "$DIR"
-  git diff --quiet && git diff --cached --quiet || fail "Local tracked changes detected. Review them before updating."
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    fail "Local tracked changes detected. Review them before updating."
+  fi
   log "Updating code without modifying .env or the database"
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
     git fetch --unshallow origin main
