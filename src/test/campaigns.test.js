@@ -33,8 +33,8 @@ pool.query = async (sql, params) => {
     return [{ insertId: 42 }];
   }
 
-  if (sql.includes('SELECT c.id,c.subject')) {
-      return [[{ id: 42, subject: 'Test' }]];
+  if (sql.includes('SELECT c.id,c.name,c.subject')) {
+      return [[{ id: 42, name: 'Test Name', subject: 'Test' }]];
   }
 
   return [[{}]];
@@ -101,9 +101,11 @@ test('POST /api/campaigns sanitizes HTML and inserts campaign', async () => {
   const insertQuery = queries.find(q => q.sql.includes('INSERT INTO campaigns'));
   assert.ok(insertQuery);
   assert.equal(insertQuery.params[0], 1); // accountId
-  assert.equal(insertQuery.params[1], 'My Campaign'); // subject
-  assert.equal(insertQuery.params[2], '<h1>Title</h1><p>Hello</p>'); // sanitized html
-  assert.equal(insertQuery.params[3], 'Custom plain'); // explicit plain
+  assert.equal(insertQuery.params[1], ''); // name
+  assert.equal(insertQuery.params[2], 'My Campaign'); // subject
+  assert.equal(insertQuery.params[3], ''); // preheader
+  assert.equal(insertQuery.params[4], '<h1>Title</h1><p>Hello</p>'); // sanitized html
+  assert.equal(insertQuery.params[5], 'Custom plain'); // explicit plain
 });
 
 test('POST /api/campaigns generates plaintext from HTML if not provided', async () => {
@@ -127,8 +129,8 @@ test('POST /api/campaigns generates plaintext from HTML if not provided', async 
 
   const insertQuery = queries.find(q => q.sql.includes('INSERT INTO campaigns'));
   assert.ok(insertQuery);
-  assert.equal(insertQuery.params[2], '<h1>Title</h1><p>Hello</p>'); // html
-  assert.equal(insertQuery.params[3], ' Title  Hello '); // stripped plain
+  assert.equal(insertQuery.params[4], '<h1>Title</h1><p>Hello</p>'); // html
+  assert.equal(insertQuery.params[5], ' Title  Hello '); // stripped plain
 });
 
 test('GET /api/campaigns returns campaigns', async () => {
@@ -141,7 +143,7 @@ test('GET /api/campaigns returns campaigns', async () => {
   });
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), [{ id: 42, subject: 'Test' }]);
+  assert.deepEqual(res.json(), [{ id: 42, name: 'Test Name', subject: 'Test' }]);
 });
 
 test.after(() => {
