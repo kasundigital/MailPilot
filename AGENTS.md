@@ -34,3 +34,17 @@ Use these instructions for all UI/UX work by ChatGPT, Codex, Jules, Claude, and 
 - Manually verify sign-in/sign-out, theme, pages, SMTP actions, contact import/export, campaign wizard, campaign Start/Pause/Duplicate/Delete/Logs/Export and newly added controls.
 - Confirm both themes at mobile, tablet and desktop widths, with screenshots if available.
 - Explicitly report what passed and what could not be tested. Do not claim browser verification without a browser.
+
+## Screenshot-driven compact production standard (2026-10)
+- Favor MailPilot's operational density over marketing-page aesthetics: restrained indigo, quiet panels, 218px navigation, 34–36px desktop controls, 6–9px radii.
+- SMTP settings use semantic grouped fieldsets (connection, sender, sending limits), an aligned three-column desktop grid, and explicit quota guidance. Do not use full-viewport giant forms.
+- Keep accounts/campaigns in accessible data tables with actionable controls, useful empty states and honest data.
+- No uppercase decorative headings or gratuitous gradients. Use typography, spacing, grouping and strong labels to encode hierarchy.
+- Review work critically before merging; follow Anthropic's frontend-design principles of brief-specific visual direction and removal of unnecessary decoration.
+- A successful CSS/JS check does not replace screenshot QA. Verify 390/768/1280/1440px in both light and dark themes when browser tooling is available.
+- For Docker upgrades, keep the existing database volume and persistent .env/cryptographic keys. The image deploy path must not create a new blank database volume when old data exists.
+
+## Deployment discipline
+- Use GitHub Actions to publish reviewed images to GHCR. PR builds do not publish; main/tag builds publish only on passing jobs.
+- Pin immutable images for critical deployments where appropriate; never rotate existing secrets or replace a database volume on routine update.
+- Keep install and update commands in docs and CLI tested by bash -n and shellcheck; do not claim an image was published until the workflow has completed.

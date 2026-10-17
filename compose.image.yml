@@ -1,5 +1,4 @@
-# Pre-built GHCR image deployment; requires .env generated with install.sh or manually.
-# docker compose -f compose.image.yml up -d
+# GHCR image deployment. Keep legacy Compose database volume identity.
 services:
   db:
     image: mariadb:11
@@ -10,7 +9,7 @@ services:
       MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Set MARIADB_ROOT_PASSWORD}
     volumes:
-      - mailpilot-db:/var/lib/mysql
+      - db-data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
       interval: 10s
@@ -22,8 +21,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - .env
+    env_file: [.env]
     ports:
       - "127.0.0.1:${APP_PORT:-3088}:3088"
     healthcheck:
@@ -32,4 +30,5 @@ services:
       timeout: 5s
       retries: 3
 volumes:
-  mailpilot-db:
+  db-data:
+    name: ${MAILPILOT_DB_VOLUME:-mailpilot_db-data}
