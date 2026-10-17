@@ -25,7 +25,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Read package version
         id: app_version
-        run: echo "value=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: node -e "console.log('value='+require('./package.json').version)" >> "$GITHUB_OUTPUT"
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5

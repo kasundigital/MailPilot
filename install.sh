@@ -33,6 +33,8 @@ if ! command -v git >/dev/null || ! command -v curl >/dev/null || ! command -v o
 fi
 systemctl enable --now docker >/dev/null
 docker info >/dev/null || fail "Docker unavailable"
+EXISTING_INSTALL=0
+[[ -f "$DIR/.env" ]] && EXISTING_INSTALL=1
 if [[ ! -f "$DIR/.env" ]]; then
   [[ "$MODE" == install ]] || fail "No .env found"
   if [[ -e "$DIR" ]]; then [[ -d "$DIR/.git" ]] || fail "Directory exists but is not a Git checkout: $DIR"
@@ -70,7 +72,11 @@ else
   cd "$DIR"
   git diff --quiet && git diff --cached --quiet || fail "Local tracked changes detected. Review them before updating."
   log "Updating code without modifying .env or the database"
-  git fetch --depth 1 origin main
+  if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+    git fetch --unshallow origin main
+  else
+    git fetch origin main
+  fi
   git merge --ff-only origin/main || fail "Fast-forward failed; no reset performed."
 fi
 cd "$DIR"
@@ -83,7 +89,7 @@ EXPLICIT_VOLUME="$(sed -n 's/^MAILPILOT_DB_VOLUME=//p' .env | tail -n 1)"
 volume_exists(){ docker volume inspect "$1" >/dev/null 2>&1; }
 if [[ -n "$EXPLICIT_VOLUME" ]]; then
   VOLUME="$EXPLICIT_VOLUME"
-  if [[ "$MODE" == update ]] && ! volume_exists "$VOLUME"; then fail "Configured database volume $VOLUME does not exist"; fi
+  if ((EXISTING_INSTALL)) && ! volume_exists "$VOLUME"; then fail "Configured database volume $VOLUME does not exist"; fi
 else
   has_current=0; has_legacy=0
   volume_exists "$CURRENT_VOLUME" && has_current=1
@@ -91,7 +97,7 @@ else
   if ((has_current && has_legacy)); then fail "Both old database volumes exist. Investigate and set MAILPILOT_DB_VOLUME in .env before proceeding."; fi
   if ((has_current)); then VOLUME="$CURRENT_VOLUME"
   elif ((has_legacy)); then VOLUME="$LEGACY_IMAGE_VOLUME"
-  elif [[ "$MODE" == update ]]; then fail "No previous DB volume found; refusing to start with a blank database"
+  elif ((EXISTING_INSTALL)); then fail "No previous DB volume found; refusing to start with a blank database"
   else VOLUME="$CURRENT_VOLUME"; fi
   printf '\nMAILPILOT_DB_VOLUME=%s\n' "$VOLUME" >> .env
   chmod 600 .env
