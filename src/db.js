@@ -92,5 +92,15 @@ export async function init(){const statements=[
   } catch (e) {
     if (e.code !== 'ER_DUP_FIELDNAME') console.warn('Could not add preheader to campaigns', e.message);
   }
+  try {
+    await pool.query('ALTER TABLE messages ADD COLUMN worker_id VARCHAR(255) NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') console.warn('Could not add worker_id to messages', e.message);
+  }
+  try {
+    await pool.query('ALTER TABLE messages ADD COLUMN leased_until DATETIME NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') console.warn('Could not add leased_until to messages', e.message);
+  }
 
 }

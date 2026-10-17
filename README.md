@@ -92,7 +92,7 @@ Avoid exposing this app directly before reviewing security. Basic self-hosted fu
 ## Architecture
 
 - Node.js / Fastify backend with MariaDB and Nodemailer
-- Persistent messages database with a conservative single worker
+- Persistent messages database with durable worker leases, graceful shutdown, and support for horizontal concurrency
 - Static responsive frontend (no build tool required)
 - Docker Compose; no open relay
 

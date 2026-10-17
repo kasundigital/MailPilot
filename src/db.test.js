@@ -7,7 +7,7 @@ test('init executes all table creation statements', async (t) => {
 
   await init();
 
-  assert.equal(pool.query.mock.calls.length, 9);
+  assert.equal(pool.query.mock.calls.length, 11);
   const sql = pool.query.mock.calls.map(c => c.arguments[0]);
   assert.match(sql[0], /CREATE TABLE IF NOT EXISTS accounts/);
   assert.match(sql[1], /CREATE TABLE IF NOT EXISTS contacts/);
@@ -18,4 +18,6 @@ test('init executes all table creation statements', async (t) => {
   assert.match(sql[6], /CREATE TABLE IF NOT EXISTS audit_logs/);
   assert.match(sql[7], /ALTER TABLE campaigns ADD COLUMN name/);
   assert.match(sql[8], /ALTER TABLE campaigns ADD COLUMN preheader/);
+  assert.match(sql[9], /ALTER TABLE messages ADD COLUMN worker_id/);
+  assert.match(sql[10], /ALTER TABLE messages ADD COLUMN leased_until/);
 });
