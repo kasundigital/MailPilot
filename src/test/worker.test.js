@@ -186,3 +186,30 @@ test('tick handles permanent email failure (500 or max attempts)', async () => {
   assert.ok(updateFailed);
   assert.equal(updateFailed.params[0], 'failed'); // Permanent
 });
+
+test('tick safely aborts if another worker claimed the lease', async () => {
+  resetMocks();
+  setNextQueryResults([
+    [{
+       message_id: 30, campaign_id: 40, contact_id: 50, email: 'test@example.com', subscribed: 1,
+       subject: 'Hello', html: '<b>World</b>', plain: 'World',
+       account_id: 5, per_minute: 10, per_hour: 100, per_day: 1000,
+       host: 'smtp.example.com', port: 587, secure: 0, username: 'user', password_cipher: encrypt('pass', process.env.ENCRYPTION_KEY),
+       from_name: 'Admin', from_email: 'admin@example.com'
+    }], // candidate
+    [{ minute_count: 0, hour_count: 0, day_count: 0 }], // limits
+    { affectedRows: 0 }, // ZERO affected rows implies another worker took it
+  ]);
+
+  await tick();
+
+  const queries = getQueryParams();
+  const sent = getSentEmails();
+
+  assert.equal(sent.length, 0); // Should not send
+  const updateSending = queries.find(q => q.sql.includes("UPDATE messages SET status='sending'"));
+  assert.ok(updateSending);
+
+  const updateSent = queries.find(q => q.sql.includes("UPDATE messages SET status='sent'"));
+  assert.equal(updateSent, undefined); // Did not reach the send
+});

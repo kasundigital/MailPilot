@@ -9,6 +9,7 @@ import fastifyStatic from '@fastify/static';
 import bcrypt from 'bcryptjs';
 import nodemailer from 'nodemailer';
 import sanitizeHtml from 'sanitize-html';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {pool,init} from './db.js';
@@ -323,6 +324,7 @@ app.get('/unsubscribe', async (req, reply) => {
 app.post('/unsubscribe',async(req,reply)=>{const x=req.body||{};if(!validSignature(x.id,x.email,x.sig,JWT_SECRET))return reply.code(400).type('text/plain').send('Invalid link');await rows('UPDATE contacts SET subscribed=0,unsubscribed_at=NOW() WHERE id=? AND email=?',[x.id,x.email]);await rows("UPDATE messages SET status='suppressed' WHERE contact_id=? AND status='queued'",[x.id]);return reply.type('text/plain').send('You have been unsubscribed.')});
 await app.register(fastifyStatic,{root:path.join(path.dirname(fileURLToPath(import.meta.url)),'../public'),prefix:'/'});
 let busy = false;
+const workerId = crypto.randomUUID();
 
 async function getCandidate() {
   const candidates = await rows("SELECT m.id AS message_id,m.campaign_id,m.contact_id,m.attempts,c.email,c.subscribed,p.subject,p.preheader,p.html,p.plain,a.* FROM messages m JOIN campaigns p ON p.id=m.campaign_id JOIN contacts c ON c.id=m.contact_id JOIN accounts a ON a.id=p.account_id WHERE m.status='queued' AND m.next_attempt<=NOW() AND p.status='running' AND a.enabled=1 ORDER BY m.id LIMIT 1");
@@ -343,7 +345,7 @@ async function checkRateLimits(j) {
 }
 
 async function takeMessage(message_id) {
-  const taken = await rows("UPDATE messages SET status='sending',attempts=attempts+1 WHERE id=? AND status='queued'", [message_id]);
+  const taken = await rows("UPDATE messages SET status='sending',attempts=attempts+1,worker_id=?,leased_until=DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE id=? AND status='queued'", [workerId, message_id]);
   return taken.affectedRows > 0;
 }
 
@@ -377,11 +379,11 @@ async function sendCandidateMessage(j) {
       headers: { 'List-Unsubscribe': '<' + unsubscribe + '>' },
       list: { unsubscribe: { url: unsubscribe } }
     });
-    await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL WHERE id=?", [j.message_id]);
+    await rows("UPDATE messages SET status='sent',sent_at=NOW(),last_error=NULL,worker_id=NULL,leased_until=NULL WHERE id=?", [j.message_id]);
   } catch (e) {
     const permanent = Number(e.responseCode) >= 500 || j.attempts >= 4;
     const backoff = Math.min(3600, 60 * 2 ** j.attempts);
-    await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=? WHERE id=?", [permanent ? 'failed' : 'queued', backoff, String(e.message).slice(0, 1000), j.message_id]);
+    await rows("UPDATE messages SET status=?,next_attempt=DATE_ADD(NOW(),INTERVAL ? SECOND),last_error=?,worker_id=NULL,leased_until=NULL WHERE id=?", [permanent ? 'failed' : 'queued', backoff, String(e.message).slice(0, 1000), j.message_id]);
   } finally {
     tx.close();
   }
@@ -391,8 +393,43 @@ async function checkCampaignCompletion(campaign_id) {
   await rows("UPDATE campaigns c SET status='completed' WHERE id=? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id=c.id AND m.status IN ('queued','sending'))", [campaign_id]);
 }
 
+let isShuttingDown = false;
+async function gracefulShutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  app.log.info('Shutting down gracefully...');
+
+  try {
+    await app.close();
+  } catch (e) {
+    app.log.error('Error during app close', e);
+  }
+
+  while (busy) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  try {
+    await rows("UPDATE messages SET status='queued', worker_id=NULL, leased_until=NULL WHERE worker_id=? AND status='sending'", [workerId]);
+  } catch (e) {
+    app.log.error('Error releasing leases', e);
+  }
+
+  process.exit(0);
+}
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
+async function recoverStalledJobs() {
+  try {
+    await rows("UPDATE messages SET status='queued', next_attempt=NOW(), worker_id=NULL, leased_until=NULL WHERE status='sending' AND leased_until < NOW()");
+  } catch (e) {
+    app.log.error(e);
+  }
+}
+
 async function tick() {
-  if (busy) return;
+  if (busy || isShuttingDown) return;
   busy = true;
   try {
     const j = await getCandidate();
@@ -420,8 +457,8 @@ export { app, tick };
 
 async function startServer() {
   await init();
-  await rows("UPDATE messages SET status='queued',next_attempt=NOW() WHERE status='sending'");
   setInterval(tick,1000).unref();
+  setInterval(recoverStalledJobs, 60000).unref();
   const port = Number(process.env.APP_PORT || process.env.PORT || 3088);
   await app.listen({port,host:'0.0.0.0'});
 }
