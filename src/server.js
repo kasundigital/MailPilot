@@ -191,7 +191,7 @@ app.post('/api/campaigns',{preHandler:csrfAuth},async(req,reply)=>{
     const contacts=await rows('SELECT id FROM contacts WHERE subscribed=1');
     recipientIds=contacts.map(c=>c.id);
   }else{
-    const tokens=String(x.recipientEmails||'').split(/[\\s,;]+/).filter(Boolean);
+    const tokens=String(x.recipientEmails||'').split(/[\s,;]+/).filter(Boolean);
     if(tokens.some(token=>!normalizeEmail(token)))return reply.code(400).send({error:'Invalid recipient address. Please correct all addresses before saving.'});
     const emails=[...new Set(tokens.map(normalizeEmail))];
     if(!emails.length||emails.length>500)
